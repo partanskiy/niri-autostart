@@ -26,6 +26,20 @@ download_and_sha256() {
   sha256sum "$tmpdir/$output" | awk '{ print $1 }'
 }
 
+generate_srcinfo() {
+  local pkgdir=$1
+
+  if [[ $EUID -eq 0 ]]; then
+    chown -R nobody:nobody "$pkgdir"
+    runuser -u nobody -- sh -lc "cd '$pkgdir' && makepkg --printsrcinfo > .SRCINFO"
+  else
+    (
+      cd "$pkgdir"
+      makepkg --printsrcinfo > .SRCINFO
+    )
+  fi
+}
+
 render_template() {
   local template=$1
   local output=$2
@@ -60,12 +74,5 @@ render_template \
   "$repo_root/aur/niri-autostart-bin/PKGBUILD.in" \
   "$output_root/niri-autostart-bin/PKGBUILD"
 
-(
-  cd "$output_root/niri-autostart"
-  makepkg --printsrcinfo > .SRCINFO
-)
-
-(
-  cd "$output_root/niri-autostart-bin"
-  makepkg --printsrcinfo > .SRCINFO
-)
+generate_srcinfo "$output_root/niri-autostart"
+generate_srcinfo "$output_root/niri-autostart-bin"
