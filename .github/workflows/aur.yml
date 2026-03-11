@@ -37,8 +37,14 @@ jobs:
       - name: Resolve release tag
         id: version
         run: |
-          git fetch --force --tags origin
-          tag_name=$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" 'v*.*.*' | sort -V | tail -n1)
+          remote_url="https://github.com/${{ github.repository }}.git"
+          head_sha="${{ github.event.workflow_run.head_sha }}"
+          tag_name=$(
+            git ls-remote --tags "$remote_url" 'refs/tags/v*.*.*' |
+              awk -v sha="$head_sha" '$1 == sha && $2 ~ /\^\{\}$/ { sub(/^refs\/tags\//, "", $2); sub(/\^\{\}$/, "", $2); print $2 }' |
+              sort -V |
+              tail -n1
+          )
           if [[ -z "$tag_name" ]]; then
             echo "could not resolve semver tag for workflow head sha" >&2
             exit 1
