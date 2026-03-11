@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 <version> <repo-url>" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: $0 <version> <repo-url> <output-dir>" >&2
   exit 1
 fi
 
 version=$1
 repo_url=${2%/}
+output_root=$3
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmpdir=$(mktemp -d)
 
@@ -25,12 +26,20 @@ download_and_sha256() {
   sha256sum "$tmpdir/$output" | awk '{ print $1 }'
 }
 
-replace_line() {
-  local pattern=$1
-  local replacement=$2
-  local file=$3
+render_template() {
+  local template=$1
+  local output=$2
 
-  sed -i -E "s|^${pattern}$|${replacement}|" "$file"
+  sed \
+    -e "s|@PKGVER@|$version|g" \
+    -e "s|@REPO_URL@|$repo_url|g" \
+    -e "s|@SOURCE_URL@|$source_url|g" \
+    -e "s|@SOURCE_SHA256@|$source_sha|g" \
+    -e "s|@BIN_X86_URL@|$bin_x86_url|g" \
+    -e "s|@BIN_AARCH64_URL@|$bin_aarch64_url|g" \
+    -e "s|@BIN_X86_SHA256@|$bin_x86_sha|g" \
+    -e "s|@BIN_AARCH64_SHA256@|$bin_aarch64_sha|g" \
+    "$template" > "$output"
 }
 
 source_url="${repo_url}/archive/refs/tags/v${version}.tar.gz"
@@ -41,22 +50,22 @@ source_sha=$(download_and_sha256 "$source_url" "niri-autostart-source.tar.gz")
 bin_x86_sha=$(download_and_sha256 "$bin_x86_url" "niri-autostart-x86_64-linux.tar.gz")
 bin_aarch64_sha=$(download_and_sha256 "$bin_aarch64_url" "niri-autostart-aarch64-linux.tar.gz")
 
-src_pkgbuild="$repo_root/aur/niri-autostart/PKGBUILD"
-bin_pkgbuild="$repo_root/aur/niri-autostart-bin/PKGBUILD"
+mkdir -p "$output_root/niri-autostart" "$output_root/niri-autostart-bin"
 
-replace_line 'pkgver=.*' "pkgver=${version}" "$src_pkgbuild"
-replace_line "sha256sums=\\('.*'\\)" "sha256sums=('${source_sha}')" "$src_pkgbuild"
+render_template \
+  "$repo_root/aur/niri-autostart/PKGBUILD.in" \
+  "$output_root/niri-autostart/PKGBUILD"
 
-replace_line 'pkgver=.*' "pkgver=${version}" "$bin_pkgbuild"
-replace_line "sha256sums_x86_64=\\('.*'\\)" "sha256sums_x86_64=('${bin_x86_sha}')" "$bin_pkgbuild"
-replace_line "sha256sums_aarch64=\\('.*'\\)" "sha256sums_aarch64=('${bin_aarch64_sha}')" "$bin_pkgbuild"
+render_template \
+  "$repo_root/aur/niri-autostart-bin/PKGBUILD.in" \
+  "$output_root/niri-autostart-bin/PKGBUILD"
 
 (
-  cd "$repo_root/aur/niri-autostart"
+  cd "$output_root/niri-autostart"
   makepkg --printsrcinfo > .SRCINFO
 )
 
 (
-  cd "$repo_root/aur/niri-autostart-bin"
+  cd "$output_root/niri-autostart-bin"
   makepkg --printsrcinfo > .SRCINFO
 )

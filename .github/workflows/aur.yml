@@ -1,24 +1,29 @@
 name: Update AUR
 
 on:
-  release:
+  workflow_run:
+    workflows:
+      - Release
     types:
-      - published
+      - completed
 
 permissions:
   contents: read
 
 jobs:
   update-aur:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-24.04
     container:
       image: archlinux:base-devel
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install packaging dependencies
-        run: pacman -Syu --noconfirm --needed git openssh curl rsync
+        run: pacman -Syu --noconfirm --needed git openssh curl
 
       - name: Prepare AUR SSH key
         env:
@@ -29,23 +34,34 @@ jobs:
           chmod 600 ~/.ssh/aur
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
-      - name: Update packaged metadata
+      - name: Resolve release tag
+        id: version
+        run: |
+          git fetch --force --tags origin
+          tag_name=$(git tag --points-at "${{ github.event.workflow_run.head_sha }}" 'v*.*.*' | sort -V | tail -n1)
+          if [[ -z "$tag_name" ]]; then
+            echo "could not resolve semver tag for workflow head sha" >&2
+            exit 1
+          fi
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "pkgver=${tag_name#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Render AUR package files
         env:
-          TAG_NAME: ${{ github.event.release.tag_name }}
           REPO_URL: https://github.com/${{ github.repository }}
-        run: ./scripts/update-aur-packages.sh "${TAG_NAME#v}" "${REPO_URL}"
+          PKGVER: ${{ steps.version.outputs.pkgver }}
+        run: ./scripts/render-aur-packages.sh "$PKGVER" "$REPO_URL" /tmp/aur-rendered
 
       - name: Push package updates to AUR
         env:
-          TAG_NAME: ${{ github.event.release.tag_name }}
+          PKGVER: ${{ steps.version.outputs.pkgver }}
         run: |
-          pkgver="${TAG_NAME#v}"
           workdir=$(mktemp -d)
 
           for pkg in niri-autostart niri-autostart-bin; do
             git clone "ssh://aur@aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
             find "$workdir/$pkg" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-            cp -a "aur/$pkg/." "$workdir/$pkg/"
+            cp -a "/tmp/aur-rendered/$pkg/." "$workdir/$pkg/"
 
             git -C "$workdir/$pkg" config user.name "github-actions[bot]"
             git -C "$workdir/$pkg" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -55,6 +71,6 @@ jobs:
               continue
             fi
 
-            git -C "$workdir/$pkg" commit -m "Update to ${pkgver}"
+            git -C "$workdir/$pkg" commit -m "Update to ${PKGVER}"
             GIT_SSH_COMMAND='ssh -i ~/.ssh/aur' git -C "$workdir/$pkg" push
           done
