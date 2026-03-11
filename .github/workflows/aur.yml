@@ -29,11 +29,11 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
-          install -dm700 ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          install -dm700 /root/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /root/.ssh/aur
+          chmod 600 /root/.ssh/aur
+          ssh-keyscan -t ed25519 aur.archlinux.org > /root/.ssh/known_hosts
+          chmod 644 /root/.ssh/known_hosts
 
       - name: Resolve release tag
         id: version
@@ -64,7 +64,7 @@ jobs:
           PKGVER: ${{ steps.version.outputs.pkgver }}
         run: |
           workdir=$(mktemp -d)
-          ssh_cmd='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=~/.ssh/known_hosts -o StrictHostKeyChecking=yes'
+          ssh_cmd='ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes'
 
           for pkg in niri-autostart niri-autostart-bin; do
             GIT_SSH_COMMAND="$ssh_cmd" git clone "ssh://aur@aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
