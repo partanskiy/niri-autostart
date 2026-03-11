@@ -46,9 +46,134 @@ autostart {
                 }
             }
         }
+
+        workspace "internet" {
+            column {
+                width {
+                    proportion 0.65
+                }
+
+                window app-id="zen" {
+                    command "zen-browser"
+                    height {
+                        proportion 1.0
+                    }
+                }
+            }
+
+            column {
+                width {
+                    proportion 0.35
+                }
+
+                window app-id="org.telegram.desktop" {
+                    command "telegram-desktop"
+                    height {
+                        proportion 1.0
+                    }
+                }
+            }
+        }
+
+        workspace "notes" {
+            column {
+                width {
+                    fixed 960
+                }
+
+                window app-id="obsidian" {
+                    command "obsidian"
+                    height {
+                        proportion 1.0
+                    }
+                }
+            }
+        }
+    }
+
+    output "HDMI-A-1" {
+        workspace "firework" {
+            column {
+                width {
+                    proportion 0.33333
+                }
+
+                window app-id="fw-fastfetch" {
+                    command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
+                    height {
+                        fixed 284
+                    }
+                }
+
+                window app-id="fw-tty-clock" {
+                    command "terminal" "--class" "fw-tty-clock" "-e" "tty-clock" "-sc"
+                    height {
+                        fixed 207
+                    }
+                }
+
+                window app-id="fw-cava" {
+                    command "terminal" "--class" "fw-cava" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
+                    height {
+                        fixed 392
+                    }
+                }
+
+                window app-id="fw-cmatrix" {
+                    command "terminal" "--class" "fw-cmatrix" "-e" "cmatrix"
+                    height {
+                        fixed 172
+                    }
+                }
+            }
+            column {
+                width {
+                    proportion 0.66667
+                }
+
+                window app-id="fw-btop" {
+                    command "terminal" "--class" "fw-btop" "-e" "btop"
+                    height {
+                        fixed 661
+                    }
+                }
+
+                window app-id="fw-asciiquarium" {
+                    command "terminal" "--class" "fw-asciiquarium" "-e" "asciiquarium"
+                    height {
+                        fixed 404
+                    }
+                }
+            }
+        }
+
+        workspace "scratch" {
+            column {
+                width {
+                    fixed 720
+                }
+
+                window app-id="scratchpad" floating=true {
+                    command "kitty" "--class" "scratchpad" "-1"
+                    height {
+                        proportion 1.0
+                    }
+                }
+            }
+        }
     }
 }
 ```
+
+This example shows the full v1 schema:
+
+- multiple `output` blocks
+- multiple `workspace` blocks per output
+- `column` width as `fixed` or `proportion`
+- `window` matching by exact `app-id`
+- `command` as an argv-style list
+- `height` as `fixed` or `proportion`
+- optional `floating=true`
 
 The default config path is:
 
@@ -59,7 +184,7 @@ The default config path is:
 Typical startup entry in `niri`:
 
 ```kdl
-spawn-at-startup "/home/geles/.local/bin/niri-autostart" "--config" "/home/geles/.config/niri-autostart/config.kdl"
+spawn-at-startup "/home/user/.local/bin/niri-autostart" "--config" "/home/user/.config/niri-autostart/config.kdl"
 ```
 
 ## Status
