@@ -1,0 +1,59 @@
+autostart {
+    output "HDMI-A-1" {
+        workspace "firework" {
+            column {
+                width {
+                    proportion 0.33333
+                }
+
+                window app-id="fw-fastfetch" {
+                    command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
+                    height {
+                        fixed 284
+                    }
+                }
+
+                window app-id="fw-tty-clock" {
+                    command "terminal" "--class" "fw-tty-clock" "-e" "tty-clock" "-sc"
+                    height {
+                        fixed 207
+                    }
+                }
+
+                window app-id="fw-cava" {
+                    command "terminal" "--class" "fw-cava" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
+                    height {
+                        fixed 392
+                    }
+                }
+
+                window app-id="fw-cmatrix" {
+                    command "terminal" "--class" "fw-cmatrix" "-e" "cmatrix"
+                    height {
+                        fixed 172
+                    }
+                }
+            }
+
+            column {
+                width {
+                    proportion 0.66667
+                }
+
+                window app-id="fw-btop" {
+                    command "terminal" "--class" "fw-btop" "-e" "btop"
+                    height {
+                        fixed 661
+                    }
+                }
+
+                window app-id="fw-asciiquarium" {
+                    command "terminal" "--class" "fw-asciiquarium" "-e" "asciiquarium"
+                    height {
+                        fixed 404
+                    }
+                }
+            }
+        }
+    }
+}
