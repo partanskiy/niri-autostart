@@ -1,0 +1,60 @@
+name: Update AUR
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  update-aur:
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging dependencies
+        run: pacman -Syu --noconfirm --needed git openssh curl rsync
+
+      - name: Prepare AUR SSH key
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          install -dm700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Update packaged metadata
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: ./scripts/update-aur-packages.sh "${TAG_NAME#v}" "${REPO_URL}"
+
+      - name: Push package updates to AUR
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          pkgver="${TAG_NAME#v}"
+          workdir=$(mktemp -d)
+
+          for pkg in niri-autostart niri-autostart-bin; do
+            git clone "ssh://aur@aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
+            find "$workdir/$pkg" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp -a "aur/$pkg/." "$workdir/$pkg/"
+
+            git -C "$workdir/$pkg" config user.name "github-actions[bot]"
+            git -C "$workdir/$pkg" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "$workdir/$pkg" add PKGBUILD .SRCINFO
+
+            if git -C "$workdir/$pkg" diff --cached --quiet; then
+              continue
+            fi
+
+            git -C "$workdir/$pkg" commit -m "Update to ${pkgver}"
+            GIT_SSH_COMMAND='ssh -i ~/.ssh/aur' git -C "$workdir/$pkg" push
+          done
