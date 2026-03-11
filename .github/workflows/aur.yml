@@ -67,7 +67,8 @@ jobs:
           ssh_cmd='ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes'
 
           for pkg in niri-autostart niri-autostart-bin; do
-            GIT_SSH_COMMAND="$ssh_cmd" git clone "ssh://aur@aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
+            git clone "https://aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
+            git -C "$workdir/$pkg" remote set-url origin "ssh://aur@aur.archlinux.org/${pkg}.git"
             find "$workdir/$pkg" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
             cp -a "/tmp/aur-rendered/$pkg/." "$workdir/$pkg/"
 
