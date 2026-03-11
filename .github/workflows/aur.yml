@@ -80,8 +80,10 @@ jobs:
           for pkg in niri-autostart niri-autostart-bin; do
             echo "=== package: $pkg ==="
             git clone "https://aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
+            git config --global --add safe.directory "$workdir/$pkg"
             echo "--- after clone ---"
             ls -la "$workdir/$pkg"
+            ls -ld "$workdir/$pkg"
             ls -la "$workdir/$pkg/.git" || true
             git -C "$workdir/$pkg" rev-parse --is-inside-work-tree
             git -C "$workdir/$pkg" remote -v
@@ -92,9 +94,12 @@ jobs:
             echo "--- after cleanup ---"
             find "$workdir/$pkg" -maxdepth 1 -mindepth 1 | sort
 
-            cp -a "/tmp/aur-rendered/$pkg/." "$workdir/$pkg/"
+            install -m644 "/tmp/aur-rendered/$pkg/PKGBUILD" "$workdir/$pkg/PKGBUILD"
+            install -m644 "/tmp/aur-rendered/$pkg/.SRCINFO" "$workdir/$pkg/.SRCINFO"
             echo "--- after copy ---"
             find "$workdir/$pkg" -maxdepth 1 -mindepth 1 | sort
+            ls -ld "$workdir/$pkg"
+            ls -l "$workdir/$pkg/PKGBUILD" "$workdir/$pkg/.SRCINFO"
             git -C "$workdir/$pkg" rev-parse --is-inside-work-tree
             git -C "$workdir/$pkg" status --short
 
