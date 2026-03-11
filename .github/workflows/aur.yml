@@ -63,20 +63,49 @@ jobs:
         env:
           PKGVER: ${{ steps.version.outputs.pkgver }}
         run: |
+          set -x
           unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
           workdir=$(mktemp -d)
           ssh_cmd='ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes'
 
+          echo "shell=$SHELL"
+          echo "pwd=$(pwd)"
+          echo "workdir=$workdir"
+          git --version
+          env | sort | grep '^GIT' || true
+          ls -la /root/.ssh
+          sed -n '1,5p' /root/.ssh/known_hosts || true
+          find /tmp/aur-rendered -maxdepth 2 -type f | sort
+
           for pkg in niri-autostart niri-autostart-bin; do
+            echo "=== package: $pkg ==="
             git clone "https://aur.archlinux.org/${pkg}.git" "$workdir/$pkg"
+            echo "--- after clone ---"
+            ls -la "$workdir/$pkg"
+            ls -la "$workdir/$pkg/.git" || true
+            git -C "$workdir/$pkg" rev-parse --is-inside-work-tree
+            git -C "$workdir/$pkg" remote -v
+
+            echo "--- before cleanup ---"
+            find "$workdir/$pkg" -maxdepth 1 -mindepth 1 | sort
             find "$workdir/$pkg" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            echo "--- after cleanup ---"
+            find "$workdir/$pkg" -maxdepth 1 -mindepth 1 | sort
+
             cp -a "/tmp/aur-rendered/$pkg/." "$workdir/$pkg/"
+            echo "--- after copy ---"
+            find "$workdir/$pkg" -maxdepth 1 -mindepth 1 | sort
+            git -C "$workdir/$pkg" rev-parse --is-inside-work-tree
+            git -C "$workdir/$pkg" status --short
 
             git -C "$workdir/$pkg" config user.name "github-actions[bot]"
             git -C "$workdir/$pkg" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git -C "$workdir/$pkg" add PKGBUILD .SRCINFO
+            echo "--- after add ---"
+            git -C "$workdir/$pkg" status --short
 
             if git -C "$workdir/$pkg" diff --cached --quiet; then
+              echo "no changes for $pkg"
               continue
             fi
 
