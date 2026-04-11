@@ -19,12 +19,6 @@ pub struct Cli {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
-    pub outputs: Vec<OutputSpec>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct OutputSpec {
-    pub name: String,
     pub workspaces: Vec<WorkspaceSpec>,
 }
 
@@ -56,14 +50,6 @@ pub enum SizeSpec {
 
 #[derive(Debug, Clone, PartialEq, knuffel::Decode)]
 struct RawAutostartConfig {
-    #[knuffel(children(name = "output"))]
-    outputs: Vec<RawOutputSpec>,
-}
-
-#[derive(Debug, Clone, PartialEq, knuffel::Decode)]
-struct RawOutputSpec {
-    #[knuffel(argument)]
-    name: String,
     #[knuffel(children(name = "workspace"))]
     workspaces: Vec<RawWorkspaceSpec>,
 }
@@ -160,13 +146,13 @@ impl Config {
     }
 
     fn from_raw(raw: RawAutostartConfig) -> AppResult<Self> {
-        let outputs = raw
-            .outputs
+        let workspaces = raw
+            .workspaces
             .into_iter()
-            .map(OutputSpec::from_raw)
+            .map(WorkspaceSpec::from_raw)
             .collect::<AppResult<Vec<_>>>()?;
 
-        let config = Self { outputs };
+        let config = Self { workspaces };
         config.validate()?;
         Ok(config)
     }
@@ -174,69 +160,47 @@ impl Config {
     fn validate(&self) -> AppResult<()> {
         let mut app_ids = HashSet::new();
 
-        if self.outputs.is_empty() {
+        if self.workspaces.is_empty() {
             return Err(NiriAutostartError::Validation(
-                "at least one `output` node is required".to_string(),
+                "at least one `workspace` node is required".to_string(),
             ));
         }
 
-        for output in &self.outputs {
-            if output.workspaces.is_empty() {
+        for workspace in &self.workspaces {
+            if workspace.columns.is_empty() {
                 return Err(NiriAutostartError::Validation(format!(
-                    "output {:?} must contain at least one workspace",
-                    output.name
+                    "workspace {:?} must contain at least one column",
+                    workspace.name
                 )));
             }
 
-            for workspace in &output.workspaces {
-                if workspace.columns.is_empty() {
+            for column in &workspace.columns {
+                if column.windows.is_empty() {
                     return Err(NiriAutostartError::Validation(format!(
-                        "workspace {:?} must contain at least one column",
+                        "workspace {:?} contains a column without windows",
                         workspace.name
                     )));
                 }
 
-                for column in &workspace.columns {
-                    if column.windows.is_empty() {
+                for window in &column.windows {
+                    if !app_ids.insert(window.app_id.clone()) {
                         return Err(NiriAutostartError::Validation(format!(
-                            "workspace {:?} contains a column without windows",
-                            workspace.name
+                            "duplicate app-id {:?} in config",
+                            window.app_id
                         )));
                     }
 
-                    for window in &column.windows {
-                        if !app_ids.insert(window.app_id.clone()) {
-                            return Err(NiriAutostartError::Validation(format!(
-                                "duplicate app-id {:?} in config",
-                                window.app_id
-                            )));
-                        }
-
-                        if window.command.is_empty() {
-                            return Err(NiriAutostartError::Validation(format!(
-                                "window {:?} must have a non-empty command",
-                                window.app_id
-                            )));
-                        }
+                    if window.command.is_empty() {
+                        return Err(NiriAutostartError::Validation(format!(
+                            "window {:?} must have a non-empty command",
+                            window.app_id
+                        )));
                     }
                 }
             }
         }
 
         Ok(())
-    }
-}
-
-impl OutputSpec {
-    fn from_raw(raw: RawOutputSpec) -> AppResult<Self> {
-        Ok(Self {
-            name: raw.name,
-            workspaces: raw
-                .workspaces
-                .into_iter()
-                .map(WorkspaceSpec::from_raw)
-                .collect::<AppResult<Vec<_>>>()?,
-        })
     }
 }
 
@@ -313,17 +277,15 @@ mod tests {
         let config = parse(
             r#"
             autostart {
-                output "HDMI-A-1" {
-                    workspace "firework" {
-                        column {
-                            width {
-                                fixed 640
-                            }
-                            window app-id="fw-fastfetch" {
-                                command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch"
-                                height {
-                                    fixed 284
-                                }
+                workspace "firework" {
+                    column {
+                        width {
+                            fixed 640
+                        }
+                        window app-id="fw-fastfetch" {
+                            command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch"
+                            height {
+                                fixed 284
                             }
                         }
                     }
@@ -333,9 +295,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.outputs.len(), 1);
+        assert_eq!(config.workspaces.len(), 1);
         assert_eq!(
-            config.outputs[0].workspaces[0].columns[0].windows[0].app_id,
+            config.workspaces[0].columns[0].windows[0].app_id,
             "fw-fastfetch"
         );
     }
@@ -345,28 +307,26 @@ mod tests {
         let err = parse(
             r#"
             autostart {
-                output "HDMI-A-1" {
-                    workspace "firework" {
-                        column {
-                            width {
-                                fixed 640
-                            }
-                            window app-id="dup" {
-                                command "a"
-                                height {
-                                    fixed 1
-                                }
+                workspace "firework" {
+                    column {
+                        width {
+                            fixed 640
+                        }
+                        window app-id="dup" {
+                            command "a"
+                            height {
+                                fixed 1
                             }
                         }
-                        column {
-                            width {
-                                fixed 640
-                            }
-                            window app-id="dup" {
-                                command "b"
-                                height {
-                                    fixed 1
-                                }
+                    }
+                    column {
+                        width {
+                            fixed 640
+                        }
+                        window app-id="dup" {
+                            command "b"
+                            height {
+                                fixed 1
                             }
                         }
                     }
@@ -384,16 +344,14 @@ mod tests {
         let err = parse(
             r#"
             autostart {
-                output "HDMI-A-1" {
-                    workspace "firework" {
-                        column {
-                            width {
-                                fixed 640
-                            }
-                            window app-id="fw-fastfetch" {
-                                height {
-                                    fixed 284
-                                }
+                workspace "firework" {
+                    column {
+                        width {
+                            fixed 640
+                        }
+                        window app-id="fw-fastfetch" {
+                            height {
+                                fixed 284
                             }
                         }
                     }
@@ -411,18 +369,16 @@ mod tests {
         let err = parse(
             r#"
             autostart {
-                output "HDMI-A-1" {
-                    workspace "firework" {
-                        column {
-                            width {
-                                fixed 640
-                                proportion 0.5
-                            }
-                            window app-id="fw-fastfetch" {
-                                command "terminal"
-                                height {
-                                    fixed 284
-                                }
+                workspace "firework" {
+                    column {
+                        width {
+                            fixed 640
+                            proportion 0.5
+                        }
+                        window app-id="fw-fastfetch" {
+                            command "terminal"
+                            height {
+                                fixed 284
                             }
                         }
                     }
@@ -440,10 +396,8 @@ mod tests {
         let err = parse(
             r#"
             autostart {
-                output "HDMI-A-1" {
-                    workspace "firework" {
-                        mystery {}
-                    }
+                workspace "firework" {
+                    mystery {}
                 }
             }
             "#,

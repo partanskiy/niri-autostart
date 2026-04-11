@@ -1,7 +1,6 @@
 autostart {
-    output "HDMI-A-1" {
-        workspace "firework" {
-            column {
+    workspace "firework" {
+        column {
                 width {
                     proportion 0.33333
                 }
@@ -54,6 +53,5 @@ autostart {
                     }
                 }
             }
-        }
     }
 }

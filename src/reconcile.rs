@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use niri_ipc::{Action, Event, SizeChange, WorkspaceReferenceArg};
 
-use crate::config::{ColumnSpec, Config, OutputSpec, SizeSpec, WindowSpec, WorkspaceSpec};
+use crate::config::{ColumnSpec, Config, SizeSpec, WindowSpec, WorkspaceSpec};
 use crate::error::{NiriAutostartError, Result};
 use crate::ipc::{CommandClient, EventMessage};
 use crate::predicate;
@@ -74,17 +74,9 @@ impl Reconciler {
         }
     }
 
-    pub fn refresh_outputs(&mut self) -> Result<()> {
-        let outputs = self.commands.outputs()?;
-        self.state.set_outputs(outputs);
-        Ok(())
-    }
-
     pub fn run(&mut self, config: &Config) -> Result<()> {
-        self.refresh_outputs()?;
-
-        for output in &config.outputs {
-            self.reconcile_output(output)?;
+        for workspace in &config.workspaces {
+            self.reconcile_workspace(workspace)?;
         }
 
         self.finalize_focus(config)?;
@@ -92,56 +84,35 @@ impl Reconciler {
         Ok(())
     }
 
-    fn reconcile_output(&mut self, output: &OutputSpec) -> Result<()> {
-        if !predicate::output_known(&self.state, &output.name) {
-            return Err(NiriAutostartError::MissingOutput(output.name.clone()));
-        }
-
-        self.commands
-            .action(Action::FocusMonitor { output: output.name.clone() })?;
-
-        for workspace in &output.workspaces {
-            self.reconcile_workspace(output, workspace)?;
-        }
-
-        Ok(())
-    }
-
     fn finalize_focus(&mut self, config: &Config) -> Result<()> {
-        for output in &config.outputs {
-            let Some(workspace) = output.workspaces.first() else {
-                continue;
-            };
-
-            self.focus_workspace_first_window(&output.name, workspace)?;
+        for workspace in &config.workspaces {
+            self.focus_workspace_first_window(workspace)?;
         }
 
-        if let Some(output) = config.outputs.first() {
-            if let Some(workspace) = output.workspaces.first() {
-                self.focus_workspace_first_window(&output.name, workspace)?;
-            }
+        if let Some(workspace) = config.workspaces.first() {
+            self.focus_workspace_first_window(workspace)?;
         }
 
         Ok(())
     }
 
-    fn reconcile_workspace(&mut self, output: &OutputSpec, workspace: &WorkspaceSpec) -> Result<()> {
+    fn reconcile_workspace(&mut self, workspace: &WorkspaceSpec) -> Result<()> {
         if !predicate::workspace_known(&self.state, &workspace.name) {
             return Err(NiriAutostartError::MissingWorkspace(workspace.name.clone()));
         }
 
-        self.ensure_workspace_active(&output.name, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
 
         for (column_idx, column) in workspace.columns.iter().enumerate() {
-            self.reconcile_column(output, workspace, column_idx + 1, column)?;
+            self.reconcile_column(workspace, column_idx + 1, column)?;
         }
 
-        self.focus_workspace_first_window(&output.name, workspace)?;
+        self.focus_workspace_first_window(workspace)?;
 
         Ok(())
     }
 
-    fn focus_workspace_first_window(&mut self, output: &str, workspace: &WorkspaceSpec) -> Result<()> {
+    fn focus_workspace_first_window(&mut self, workspace: &WorkspaceSpec) -> Result<()> {
         let Some(first_window) = workspace.columns.first().and_then(|column| column.windows.first()) else {
             return Ok(());
         };
@@ -151,7 +122,7 @@ impl Reconciler {
             .window_id_by_app_id_on_workspace(&first_window.app_id, &workspace.name)
             .ok_or_else(|| NiriAutostartError::MissingWindow(first_window.app_id.clone()))?;
 
-        self.ensure_workspace_active(output, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
         self.commands.action(Action::FocusColumn { index: 1 })?;
         self.commands.action(Action::FocusWindow { id: window_id })?;
         self.wait_for(
@@ -166,7 +137,6 @@ impl Reconciler {
 
     fn reconcile_column(
         &mut self,
-        output: &OutputSpec,
         workspace: &WorkspaceSpec,
         column_index: usize,
         column: &ColumnSpec,
@@ -176,14 +146,13 @@ impl Reconciler {
             .first()
             .ok_or_else(|| NiriAutostartError::Validation("column without windows".to_string()))?;
 
-        let first_id = self.ensure_window_present(output, workspace, first)?;
-        self.ensure_primary_window_position(output, workspace, first, first_id, column_index)?;
+        let first_id = self.ensure_window_present(workspace, first)?;
+        self.ensure_primary_window_position(workspace, first, first_id, column_index)?;
 
         for (row_index, window) in column.windows.iter().enumerate().skip(1) {
             let target_row = row_index + 1;
-            let window_id = self.ensure_window_present(output, workspace, window)?;
+            let window_id = self.ensure_window_present(workspace, window)?;
             self.ensure_stacked_window_position(
-                output,
                 workspace,
                 window,
                 window_id,
@@ -192,8 +161,7 @@ impl Reconciler {
             )?;
         }
 
-        self.refresh_outputs()?;
-        self.ensure_workspace_active(&output.name, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
         self.commands.action(Action::FocusColumn { index: column_index })?;
         self.commands.action(Action::SetColumnWidth {
             change: column.width.to_size_change(),
@@ -212,9 +180,7 @@ impl Reconciler {
         Ok(())
     }
 
-    fn ensure_workspace_active(&mut self, output: &str, workspace: &str) -> Result<()> {
-        self.commands
-            .action(Action::FocusMonitor { output: output.to_string() })?;
+    fn ensure_workspace_active(&mut self, workspace: &str) -> Result<()> {
         self.commands.action(Action::FocusWorkspace {
             reference: WorkspaceReferenceArg::Name(workspace.to_string()),
         })?;
@@ -227,7 +193,6 @@ impl Reconciler {
 
     fn ensure_window_present(
         &mut self,
-        output: &OutputSpec,
         workspace: &WorkspaceSpec,
         spec: &WindowSpec,
     ) -> Result<u64> {
@@ -253,7 +218,7 @@ impl Reconciler {
             .or_else(|| self.state.first_window_id_by_app_id(&spec.app_id))
             .ok_or_else(|| NiriAutostartError::MissingWindow(spec.app_id.clone()))?;
 
-        self.ensure_workspace_active(&output.name, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
 
         if !predicate::window_on_workspace(&self.state, &spec.app_id, &workspace.name) {
             self.commands.action(Action::MoveWindowToWorkspace {
@@ -280,7 +245,6 @@ impl Reconciler {
 
     fn ensure_primary_window_position(
         &mut self,
-        output: &OutputSpec,
         workspace: &WorkspaceSpec,
         spec: &WindowSpec,
         window_id: u64,
@@ -299,7 +263,7 @@ impl Reconciler {
             return Ok(());
         }
 
-        self.ensure_workspace_active(&output.name, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
         self.commands.action(Action::FocusWindow { id: window_id })?;
         self.wait_for(
             DEFAULT_TIMEOUT,
@@ -322,7 +286,6 @@ impl Reconciler {
 
     fn ensure_stacked_window_position(
         &mut self,
-        output: &OutputSpec,
         workspace: &WorkspaceSpec,
         spec: &WindowSpec,
         window_id: u64,
@@ -350,7 +313,7 @@ impl Reconciler {
             return self.ensure_window_row(window_id, &spec.app_id, target_row);
         }
 
-        self.ensure_workspace_active(&output.name, &workspace.name)?;
+        self.ensure_workspace_active(&workspace.name)?;
         self.commands.action(Action::FocusWindow { id: window_id })?;
         self.wait_for(
             DEFAULT_TIMEOUT,

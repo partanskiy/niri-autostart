@@ -35,9 +35,6 @@ pub enum NiriAutostartError {
     #[error("event stream closed: {0}")]
     EventStreamClosed(String),
 
-    #[error("output {0:?} was not found in niri state")]
-    MissingOutput(String),
-
     #[error("workspace {0:?} was not found in niri state")]
     MissingWorkspace(String),
 

@@ -7,7 +7,7 @@
 
 ## About
 
-`niri-autostart` reads a KDL file, subscribes to the `niri` IPC event stream, keeps an in-memory model of outputs, workspaces and windows, and converges the compositor toward the declared layout.
+`niri-autostart` reads a KDL file, subscribes to the `niri` IPC event stream, keeps an in-memory model of workspaces and windows, and converges the compositor toward the declared layout. Workspace-to-monitor assignment is left to niri's own configuration.
 
 It is intended to replace ad-hoc startup shell scripts with a small event-driven tool:
 
@@ -18,7 +18,7 @@ It is intended to replace ad-hoc startup shell scripts with a small event-driven
 
 ## Features
 
-- Declarative KDL config with `output`, `workspace`, `column` and `window`
+- Declarative KDL config with `workspace`, `column` and `window`
 - Uses `niri-ipc` types directly
 - Waits on real `event-stream` state changes
 - Reuses existing windows by exact `app-id`
@@ -31,133 +31,129 @@ Example:
 
 ```kdl
 autostart {
-    output "eDP-1" {
-        workspace "code" {
-            column {
-                width {
+    workspace "code" {
+        column {
+            width {
+                proportion 1.0
+            }
+
+            window app-id="cursor" {
+                command "cursor"
+                height {
                     proportion 1.0
-                }
-
-                window app-id="cursor" {
-                    command "cursor"
-                    height {
-                        proportion 1.0
-                    }
-                }
-            }
-        }
-
-        workspace "internet" {
-            column {
-                width {
-                    proportion 0.65
-                }
-
-                window app-id="zen" {
-                    command "zen-browser"
-                    height {
-                        proportion 1.0
-                    }
-                }
-            }
-
-            column {
-                width {
-                    proportion 0.35
-                }
-
-                window app-id="org.telegram.desktop" {
-                    command "telegram-desktop"
-                    height {
-                        proportion 1.0
-                    }
-                }
-            }
-        }
-
-        workspace "notes" {
-            column {
-                width {
-                    fixed 960
-                }
-
-                window app-id="obsidian" {
-                    command "obsidian"
-                    height {
-                        proportion 1.0
-                    }
                 }
             }
         }
     }
 
-    output "HDMI-A-1" {
-        workspace "firework" {
-            column {
-                width {
-                    proportion 0.33333
-                }
-
-                window app-id="fw-fastfetch" {
-                    command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
-                    height {
-                        fixed 284
-                    }
-                }
-
-                window app-id="fw-tty-clock" {
-                    command "terminal" "--class" "fw-tty-clock" "-e" "tty-clock" "-sc"
-                    height {
-                        fixed 207
-                    }
-                }
-
-                window app-id="fw-cava" {
-                    command "terminal" "--class" "fw-cava" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
-                    height {
-                        fixed 392
-                    }
-                }
-
-                window app-id="fw-cmatrix" {
-                    command "terminal" "--class" "fw-cmatrix" "-e" "cmatrix"
-                    height {
-                        fixed 172
-                    }
-                }
+    workspace "internet" {
+        column {
+            width {
+                proportion 0.65
             }
-            column {
-                width {
-                    proportion 0.66667
-                }
 
-                window app-id="fw-btop" {
-                    command "terminal" "--class" "fw-btop" "-e" "btop"
-                    height {
-                        fixed 661
-                    }
-                }
-
-                window app-id="fw-asciiquarium" {
-                    command "terminal" "--class" "fw-asciiquarium" "-e" "asciiquarium"
-                    height {
-                        fixed 404
-                    }
+            window app-id="zen" {
+                command "zen-browser"
+                height {
+                    proportion 1.0
                 }
             }
         }
 
-        workspace "scratch" {
-            column {
-                width {
-                    fixed 720
-                }
+        column {
+            width {
+                proportion 0.35
+            }
 
-                window app-id="scratchpad" floating=true {
-                    command "kitty" "--class" "scratchpad" "-1"
-                    height {
-                        proportion 1.0
-                    }
+            window app-id="org.telegram.desktop" {
+                command "telegram-desktop"
+                height {
+                    proportion 1.0
+                }
+            }
+        }
+    }
+
+    workspace "notes" {
+        column {
+            width {
+                fixed 960
+            }
+
+            window app-id="obsidian" {
+                command "obsidian"
+                height {
+                    proportion 1.0
+                }
+            }
+        }
+    }
+
+    workspace "firework" {
+        column {
+            width {
+                proportion 0.33333
+            }
+
+            window app-id="fw-fastfetch" {
+                command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
+                height {
+                    fixed 284
+                }
+            }
+
+            window app-id="fw-tty-clock" {
+                command "terminal" "--class" "fw-tty-clock" "-e" "tty-clock" "-sc"
+                height {
+                    fixed 207
+                }
+            }
+
+            window app-id="fw-cava" {
+                command "terminal" "--class" "fw-cava" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
+                height {
+                    fixed 392
+                }
+            }
+
+            window app-id="fw-cmatrix" {
+                command "terminal" "--class" "fw-cmatrix" "-e" "cmatrix"
+                height {
+                    fixed 172
+                }
+            }
+        }
+        column {
+            width {
+                proportion 0.66667
+            }
+
+            window app-id="fw-btop" {
+                command "terminal" "--class" "fw-btop" "-e" "btop"
+                height {
+                    fixed 661
+                }
+            }
+
+            window app-id="fw-asciiquarium" {
+                command "terminal" "--class" "fw-asciiquarium" "-e" "asciiquarium"
+                height {
+                    fixed 404
+                }
+            }
+        }
+    }
+
+    workspace "scratch" {
+        column {
+            width {
+                fixed 720
+            }
+
+            window app-id="scratchpad" floating=true {
+                command "kitty" "--class" "scratchpad" "-1"
+                height {
+                    proportion 1.0
                 }
             }
         }
@@ -165,10 +161,9 @@ autostart {
 }
 ```
 
-This example shows the full v1 schema:
+This example shows the full schema:
 
-- multiple `output` blocks
-- multiple `workspace` blocks per output
+- multiple `workspace` blocks (monitor assignment is configured in niri itself)
 - `column` width as `fixed` or `proportion`
 - `window` matching by exact `app-id`
 - `command` as an argv-style list
