@@ -19,9 +19,8 @@ fn run() -> Result<()> {
     let config = Config::load(&config_path)?;
 
     let events = EventStream::connect()?;
-    let mut state = bootstrap_initial_state(&events.rx, std::time::Duration::from_secs(10))?;
-    let mut commands = CommandClient::connect()?;
-    state.set_outputs(commands.outputs()?);
+    let state = bootstrap_initial_state(&events.rx, std::time::Duration::from_secs(10))?;
+    let commands = CommandClient::connect()?;
 
     let mut reconciler = Reconciler::new(commands, events.rx, state);
     reconciler.run(&config)?;

@@ -1,9 +1,5 @@
 use crate::state::ActualState;
 
-pub fn output_known(state: &ActualState, output_name: &str) -> bool {
-    state.output(output_name).is_some()
-}
-
 pub fn workspace_known(state: &ActualState, workspace_name: &str) -> bool {
     state.workspace_by_name(workspace_name).is_some()
 }
@@ -87,34 +83,10 @@ pub fn window_tile_size(
 mod tests {
     use super::*;
     use crate::state::ActualState;
-    use niri_ipc::{LogicalOutput, Output, Timestamp, Transform, Window, WindowLayout, Workspace};
-    use std::collections::HashMap;
+    use niri_ipc::{Timestamp, Window, WindowLayout, Workspace};
 
     fn state() -> ActualState {
         let mut state = ActualState::default();
-        state.set_outputs(HashMap::from([(
-            "HDMI-A-1".into(),
-            Output {
-                name: "HDMI-A-1".into(),
-                make: "A".into(),
-                model: "B".into(),
-                serial: None,
-                physical_size: None,
-                modes: vec![],
-                current_mode: None,
-                is_custom_mode: false,
-                vrr_supported: false,
-                vrr_enabled: false,
-                logical: Some(LogicalOutput {
-                    x: 0,
-                    y: 0,
-                    width: 1920,
-                    height: 1080,
-                    scale: 1.0,
-                    transform: Transform::Normal,
-                }),
-            },
-        )]));
         state.replace_workspaces(vec![Workspace {
             id: 1,
             idx: 1,

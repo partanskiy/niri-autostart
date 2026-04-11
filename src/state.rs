@@ -1,10 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
-use niri_ipc::{Output, Window, Workspace};
+use niri_ipc::{Window, Workspace};
 
 #[derive(Debug, Default, Clone)]
 pub struct ActualState {
-    pub outputs: HashMap<String, Output>,
     pub workspaces: HashMap<u64, Workspace>,
     pub windows: HashMap<u64, Window>,
     pub last_config_loaded_failed: Option<bool>,
@@ -14,10 +13,6 @@ pub struct ActualState {
 }
 
 impl ActualState {
-    pub fn set_outputs(&mut self, outputs: HashMap<String, Output>) {
-        self.outputs = outputs;
-    }
-
     pub fn replace_workspaces(&mut self, workspaces: Vec<Workspace>) {
         self.workspaces = workspaces.into_iter().map(|ws| (ws.id, ws)).collect();
         self.rebuild_indices();
@@ -62,10 +57,6 @@ impl ActualState {
     pub fn workspace_by_name(&self, name: &str) -> Option<&Workspace> {
         self.workspace_id_by_name(name)
             .and_then(|id| self.workspaces.get(&id))
-    }
-
-    pub fn output(&self, name: &str) -> Option<&Output> {
-        self.outputs.get(name)
     }
 
     pub fn preferred_window_id_by_app_id(

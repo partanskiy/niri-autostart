@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use niri_ipc::socket::Socket;
-use niri_ipc::{Action, Event, Output, Reply, Request, Response};
+use niri_ipc::{Action, Event, Reply, Request, Response};
 
 use crate::error::{NiriAutostartError, Result};
 
@@ -38,14 +37,6 @@ impl CommandClient {
         }
     }
 
-    pub fn outputs(&mut self) -> Result<HashMap<String, Output>> {
-        let reply = self.socket.send(Request::Outputs)?;
-        match reply {
-            Ok(Response::Outputs(outputs)) => Ok(outputs),
-            Ok(_) => Err(NiriAutostartError::UnexpectedReply { context: "outputs" }),
-            Err(message) => Err(NiriAutostartError::Niri(message)),
-        }
-    }
 }
 
 impl EventStream {
