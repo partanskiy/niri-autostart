@@ -9,5 +9,5 @@ license = "GPL-3.0-or-later"
 [dependencies]
 clap = { version = "4.5.60", features = ["derive"] }
 knuffel = "3.2.0"
-niri-ipc = "26.4.0"
+niri-ipc = "=26.4.0"
 thiserror = "2.0.12"
