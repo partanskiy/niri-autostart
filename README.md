@@ -2,7 +2,7 @@
 <p align="center">Declarative autostart and layout restoration for niri.</p>
 
 <p align="center">
-    <a href="#about">About</a> | <a href="#configuration">Configuration</a> | <a href="#status">Status</a>
+    <a href="#about">About</a> | <a href="#configuration">Configuration</a> | <a href="#installation">Installation</a> | <a href="#status">Status</a>
 </p>
 
 ## About
@@ -24,6 +24,24 @@ It is intended to replace ad-hoc startup shell scripts with a small event-driven
 - Reuses existing windows by exact `app-id`
 - Prefers the matching tiled window on the target workspace when duplicates exist
 - Can be launched directly from `startup.kdl`
+
+## Installation
+
+### AUR
+
+```sh
+paru -S niri-autostart
+```
+
+Or prebuilt binary
+
+```sh
+paru -S niri-autostart-bin
+```
+
+### Binary releases
+
+You can download a binary release [here](https://github.com/partanskiy/niri-autostart/releases)
 
 ## Configuration
 
