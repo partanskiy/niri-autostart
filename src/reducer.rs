@@ -82,10 +82,7 @@ pub fn apply_event(state: &mut ActualState, event: Event) {
         Event::ConfigLoaded { failed } => {
             state.last_config_loaded_failed = Some(failed);
         }
-        Event::KeyboardLayoutsChanged { .. }
-        | Event::KeyboardLayoutSwitched { .. }
-        | Event::OverviewOpenedOrClosed { .. }
-        | Event::ScreenshotCaptured { .. } => {}
+        _ => {}
     }
 }
 
