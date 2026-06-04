@@ -1,17 +1,31 @@
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 
-use niri_ipc::{Action, Event, SizeChange, WorkspaceReferenceArg};
+#[cfg(test)]
+use niri_ipc::Event;
+use niri_ipc::{Action, SizeChange, WorkspaceReferenceArg};
 
 use crate::config::{ColumnSpec, Config, SizeSpec, WindowSpec, WorkspaceSpec};
 use crate::error::{NiriAutostartError, Result};
-use crate::ipc::{CommandClient, EventMessage};
+use crate::event_adapter::EventAdapter;
+use crate::ipc::CommandClient;
+#[cfg(test)]
+use crate::ipc::EventMessage;
 use crate::predicate;
+#[cfg(test)]
 use crate::reducer::apply_event;
+use crate::runtime_state::{RuntimeState, WindowKey};
 use crate::state::ActualState;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const STABLE_FOCUS_QUIET: Duration = Duration::from_millis(150);
 
+#[cfg(test)]
 pub fn bootstrap_initial_state(
     rx: &Receiver<EventMessage>,
     timeout: Duration,
@@ -22,12 +36,13 @@ pub fn bootstrap_initial_state(
     let mut saw_windows = false;
 
     while !(saw_workspaces && saw_windows) {
-        let remaining = timeout
-            .checked_sub(start.elapsed())
-            .ok_or_else(|| NiriAutostartError::Timeout {
-                what: "initial niri event-stream state".to_string(),
-                timeout,
-            })?;
+        let remaining =
+            timeout
+                .checked_sub(start.elapsed())
+                .ok_or_else(|| NiriAutostartError::Timeout {
+                    what: "initial niri event-stream state".to_string(),
+                    timeout,
+                })?;
 
         match rx.recv_timeout(remaining) {
             Ok(EventMessage::Event(event)) => {
@@ -61,24 +76,71 @@ pub fn bootstrap_initial_state(
 
 pub struct Reconciler {
     commands: CommandClient,
-    events: Receiver<EventMessage>,
+    events: EventAdapter,
     state: ActualState,
+    runtime_state: RuntimeState,
+    runtime_state_path: PathBuf,
+    app_id_counts: HashMap<String, usize>,
 }
 
 impl Reconciler {
-    pub fn new(commands: CommandClient, events: Receiver<EventMessage>, state: ActualState) -> Self {
+    pub fn new(
+        commands: CommandClient,
+        events: EventAdapter,
+        runtime_state: RuntimeState,
+        runtime_state_path: PathBuf,
+    ) -> Self {
+        let state = events.state();
         Self {
             commands,
             events,
             state,
+            runtime_state,
+            runtime_state_path,
+            app_id_counts: HashMap::new(),
         }
     }
 
+    fn window_id_by_spec(
+        &mut self,
+        key: &WindowKey,
+        spec: &WindowSpec,
+        preferred_workspace: Option<&str>,
+    ) -> Result<Option<u64>> {
+        self.sync_state();
+
+        if let Some(window_id) = self.runtime_state.window_id(key, spec, &self.state) {
+            return Ok(Some(window_id));
+        }
+
+        if self.app_id_counts.get(&spec.app_id).copied() != Some(1) {
+            return Ok(None);
+        }
+
+        let Some(window_id) = self
+            .state
+            .preferred_window_id_by_app_id(&spec.app_id, preferred_workspace)
+            .or_else(|| self.state.preferred_window_id_by_app_id(&spec.app_id, None))
+        else {
+            return Ok(None);
+        };
+
+        self.record_runtime_window(key, spec, window_id)?;
+        Ok(Some(window_id))
+    }
+
     pub fn run(&mut self, config: &Config) -> Result<()> {
+        self.app_id_counts = app_id_counts(config);
+
         for workspace in &config.workspaces {
             self.reconcile_workspace(workspace)?;
         }
 
+        self.wait_until_quiet(
+            DEFAULT_TIMEOUT,
+            STABLE_FOCUS_QUIET,
+            "event stream to settle before final focus".to_string(),
+        )?;
         self.finalize_focus(config)?;
 
         Ok(())
@@ -113,25 +175,49 @@ impl Reconciler {
     }
 
     fn focus_workspace_first_window(&mut self, workspace: &WorkspaceSpec) -> Result<()> {
-        let Some(first_window) = workspace.columns.first().and_then(|column| column.windows.first()) else {
+        let Some(first_window) = workspace
+            .columns
+            .first()
+            .and_then(|column| column.windows.first())
+        else {
             return Ok(());
         };
+        let key = WindowKey::new(&workspace.name, 1, 1);
 
         let window_id = self
-            .state
-            .window_id_by_app_id_on_workspace(&first_window.app_id, &workspace.name)
-            .ok_or_else(|| NiriAutostartError::MissingWindow(first_window.app_id.clone()))?;
+            .window_id_by_spec(&key, first_window, Some(&workspace.name))?
+            .ok_or_else(|| NiriAutostartError::MissingWindow(window_label(&key, first_window)))?;
 
         self.ensure_workspace_active(&workspace.name)?;
-        self.commands.action(Action::FocusColumn { index: 1 })?;
-        self.commands.action(Action::FocusWindow { id: window_id })?;
-        self.wait_for(
+        self.wait_until_quiet(
             DEFAULT_TIMEOUT,
+            STABLE_FOCUS_QUIET,
+            format!(
+                "workspace {:?} to settle before final focus",
+                workspace.name
+            ),
+        )?;
+        self.commands
+            .action(Action::FocusWindow { id: window_id })?;
+        self.wait_for_stable(
+            DEFAULT_TIMEOUT,
+            STABLE_FOCUS_QUIET,
             format!(
                 "workspace {:?} first window {:?} to become focused",
-                workspace.name, first_window.app_id
+                workspace.name,
+                window_label(&key, first_window)
             ),
-            |state| state.windows.get(&window_id).is_some_and(|window| window.is_focused),
+            |state| {
+                let window_focused = state
+                    .windows
+                    .get(&window_id)
+                    .is_some_and(|window| window.is_focused);
+                let workspace_active_window = state
+                    .workspace_by_name(&workspace.name)
+                    .is_some_and(|workspace| workspace.active_window_id == Some(window_id));
+
+                window_focused && workspace_active_window
+            },
         )
     }
 
@@ -146,35 +232,38 @@ impl Reconciler {
             .first()
             .ok_or_else(|| NiriAutostartError::Validation("column without windows".to_string()))?;
 
-        let first_id = self.ensure_window_present(workspace, first)?;
-        self.ensure_primary_window_position(workspace, first, first_id, column_index)?;
+        let first_key = WindowKey::new(&workspace.name, column_index, 1);
+        let first_id = self.ensure_window_present(workspace, &first_key, first)?;
+        self.ensure_primary_window_position(workspace, &first_key, first, first_id, column_index)?;
+        let mut positioned = vec![(first_key, first, first_id)];
 
         for (row_index, window) in column.windows.iter().enumerate().skip(1) {
             let target_row = row_index + 1;
-            let window_id = self.ensure_window_present(workspace, window)?;
+            let key = WindowKey::new(&workspace.name, column_index, target_row);
+            let window_id = self.ensure_window_present(workspace, &key, window)?;
             self.ensure_stacked_window_position(
                 workspace,
+                &key,
                 window,
                 window_id,
                 column_index,
                 target_row,
             )?;
+            positioned.push((key, window, window_id));
         }
 
         self.ensure_workspace_active(&workspace.name)?;
-        self.commands.action(Action::FocusColumn { index: column_index })?;
+        self.commands.action(Action::FocusColumn {
+            index: column_index,
+        })?;
         self.commands.action(Action::SetColumnWidth {
             change: column.width.to_size_change(),
         })?;
 
-        for window in &column.windows {
-            let window_id = self
-                .state
-                .window_id_by_app_id_on_workspace(&window.app_id, &workspace.name)
-                .ok_or_else(|| NiriAutostartError::MissingWindow(window.app_id.clone()))?;
-
-            self.apply_window_floating(window_id, window.floating, &window.app_id)?;
-            self.apply_window_height(window_id, &window.app_id, window.height)?;
+        for (key, window, window_id) in positioned {
+            let label = window_label(&key, window);
+            self.apply_window_floating(window_id, window.floating, &label)?;
+            self.apply_window_height(window_id, &label, window.height)?;
         }
 
         Ok(())
@@ -194,33 +283,29 @@ impl Reconciler {
     fn ensure_window_present(
         &mut self,
         workspace: &WorkspaceSpec,
+        key: &WindowKey,
         spec: &WindowSpec,
     ) -> Result<u64> {
-        if self
-            .state
-            .preferred_window_id_by_app_id(&spec.app_id, Some(&workspace.name))
-            .is_none()
-            && self.state.first_window_id_by_app_id(&spec.app_id).is_none()
-        {
+        let label = window_label(key, spec);
+        let mut window_id = self.window_id_by_spec(key, spec, Some(&workspace.name))?;
+
+        if window_id.is_none() {
+            let before = self.state.windows.keys().copied().collect::<HashSet<_>>();
             self.commands.action(Action::Spawn {
                 command: spec.command.clone(),
             })?;
-            self.wait_for(
-                DEFAULT_TIMEOUT,
-                format!("window {:?} to appear", spec.app_id),
-                |state| predicate::window_exists_by_app_id(state, &spec.app_id),
-            )?;
+            let spawned_id =
+                self.wait_for_spawned_window(DEFAULT_TIMEOUT, &label, &before, spec)?;
+            self.record_runtime_window(key, spec, spawned_id)?;
+            window_id = Some(spawned_id);
         }
 
-        let window_id = self
-            .state
-            .preferred_window_id_by_app_id(&spec.app_id, Some(&workspace.name))
-            .or_else(|| self.state.first_window_id_by_app_id(&spec.app_id))
-            .ok_or_else(|| NiriAutostartError::MissingWindow(spec.app_id.clone()))?;
+        let window_id =
+            window_id.ok_or_else(|| NiriAutostartError::MissingWindow(label.clone()))?;
 
         self.ensure_workspace_active(&workspace.name)?;
 
-        if !predicate::window_on_workspace(&self.state, &spec.app_id, &workspace.name) {
+        if !predicate::window_id_on_workspace(&self.state, window_id, &workspace.name) {
             self.commands.action(Action::MoveWindowToWorkspace {
                 window_id: Some(window_id),
                 reference: WorkspaceReferenceArg::Name(workspace.name.clone()),
@@ -228,34 +313,29 @@ impl Reconciler {
             })?;
             self.wait_for(
                 DEFAULT_TIMEOUT,
-                format!("window {:?} to move to workspace {:?}", spec.app_id, workspace.name),
-                |state| predicate::window_on_workspace(state, &spec.app_id, &workspace.name),
+                format!("window {label:?} to move to workspace {:?}", workspace.name),
+                |state| predicate::window_id_on_workspace(state, window_id, &workspace.name),
             )?;
         }
 
-        Ok(self
-            .state
-            .window_id_by_app_id_on_workspace(&spec.app_id, &workspace.name)
-            .or_else(|| {
-                self.state
-                    .preferred_window_id_by_app_id(&spec.app_id, Some(&workspace.name))
-            })
-            .ok_or_else(|| NiriAutostartError::MissingWindow(spec.app_id.clone()))?)
+        Ok(window_id)
     }
 
     fn ensure_primary_window_position(
         &mut self,
         workspace: &WorkspaceSpec,
+        key: &WindowKey,
         spec: &WindowSpec,
         window_id: u64,
         target_column: usize,
     ) -> Result<()> {
-        self.apply_window_floating(window_id, spec.floating, &spec.app_id)?;
-        self.ensure_window_row(window_id, &spec.app_id, 1)?;
+        let label = window_label(key, spec);
+        self.apply_window_floating(window_id, spec.floating, &label)?;
+        self.ensure_window_row(window_id, &label, 1)?;
 
-        if predicate::window_at_position(
+        if predicate::window_id_at_position(
             &self.state,
-            &spec.app_id,
+            window_id,
             &workspace.name,
             target_column,
             1,
@@ -264,39 +344,48 @@ impl Reconciler {
         }
 
         self.ensure_workspace_active(&workspace.name)?;
-        self.commands.action(Action::FocusWindow { id: window_id })?;
+        self.commands
+            .action(Action::FocusWindow { id: window_id })?;
         self.wait_for(
             DEFAULT_TIMEOUT,
-            format!("window {:?} to become focused", spec.app_id),
-            |state| state.windows.get(&window_id).is_some_and(|window| window.is_focused),
+            format!("window {label:?} to become focused"),
+            |state| {
+                state
+                    .windows
+                    .get(&window_id)
+                    .is_some_and(|window| window.is_focused)
+            },
         )?;
-        self.commands.action(Action::MoveColumnToIndex { index: target_column })?;
+        self.commands.action(Action::MoveColumnToIndex {
+            index: target_column,
+        })?;
         self.wait_for(
             DEFAULT_TIMEOUT,
-            format!(
-                "window {:?} to reach column {} row 1",
-                spec.app_id, target_column
-            ),
-            |state| state.windows.get(&window_id).is_some_and(|window| {
-                window.workspace_id == state.workspace_id_by_name(&workspace.name)
-                    && window.layout.pos_in_scrolling_layout == Some((target_column, 1))
-            }),
+            format!("window {:?} to reach column {} row 1", label, target_column),
+            |state| {
+                state.windows.get(&window_id).is_some_and(|window| {
+                    window.workspace_id == state.workspace_id_by_name(&workspace.name)
+                        && window.layout.pos_in_scrolling_layout == Some((target_column, 1))
+                })
+            },
         )
     }
 
     fn ensure_stacked_window_position(
         &mut self,
         workspace: &WorkspaceSpec,
+        key: &WindowKey,
         spec: &WindowSpec,
         window_id: u64,
         target_column: usize,
         target_row: usize,
     ) -> Result<()> {
-        self.apply_window_floating(window_id, spec.floating, &spec.app_id)?;
+        let label = window_label(key, spec);
+        self.apply_window_floating(window_id, spec.floating, &label)?;
 
-        if predicate::window_at_position(
+        if predicate::window_id_at_position(
             &self.state,
-            &spec.app_id,
+            window_id,
             &workspace.name,
             target_column,
             target_row,
@@ -307,29 +396,36 @@ impl Reconciler {
         let (current_column, _) = self
             .state
             .window_position_by_id(window_id)
-            .ok_or_else(|| NiriAutostartError::MissingWindow(spec.app_id.clone()))?;
+            .ok_or_else(|| NiriAutostartError::MissingWindow(label.clone()))?;
 
         if current_column == target_column {
-            return self.ensure_window_row(window_id, &spec.app_id, target_row);
+            return self.ensure_window_row(window_id, &label, target_row);
         }
 
         self.ensure_workspace_active(&workspace.name)?;
-        self.commands.action(Action::FocusWindow { id: window_id })?;
+        self.commands
+            .action(Action::FocusWindow { id: window_id })?;
         self.wait_for(
             DEFAULT_TIMEOUT,
-            format!("window {:?} to become focused", spec.app_id),
-            |state| state.windows.get(&window_id).is_some_and(|window| window.is_focused),
+            format!("window {label:?} to become focused"),
+            |state| {
+                state
+                    .windows
+                    .get(&window_id)
+                    .is_some_and(|window| window.is_focused)
+            },
         )?;
 
         let desired_column = target_column + 1;
         if current_column != desired_column {
-            self.commands
-                .action(Action::MoveColumnToIndex { index: desired_column })?;
+            self.commands.action(Action::MoveColumnToIndex {
+                index: desired_column,
+            })?;
             self.wait_for(
                 DEFAULT_TIMEOUT,
                 format!(
                     "window {:?} to move to helper column {}",
-                    spec.app_id, desired_column
+                    label, desired_column
                 ),
                 |state| {
                     state
@@ -343,28 +439,36 @@ impl Reconciler {
             .state
             .window_position_by_id(window_id)
             .map(|(column, _)| column)
-            .ok_or_else(|| NiriAutostartError::MissingWindow(spec.app_id.clone()))?;
+            .ok_or_else(|| NiriAutostartError::MissingWindow(label.clone()))?;
         if helper_column != desired_column {
             return Err(NiriAutostartError::NonAdjacentColumn {
-                app_id: spec.app_id.clone(),
+                app_id: label.clone(),
                 actual: helper_column,
                 expected_left: target_column,
             });
         }
 
-        self.commands.action(Action::FocusColumn { index: target_column })?;
+        self.commands.action(Action::FocusColumn {
+            index: target_column,
+        })?;
         self.commands.action(Action::ConsumeWindowIntoColumn {})?;
         self.wait_for(
             DEFAULT_TIMEOUT,
             format!(
                 "window {:?} to reach column {} row {}",
-                spec.app_id, target_column, target_row
+                label, target_column, target_row
             ),
             |state| {
                 state.windows.get(&window_id).is_some_and(|window| {
                     window.workspace_id == state.workspace_id_by_name(&workspace.name)
-                        && window.layout.pos_in_scrolling_layout == Some((target_column, target_row))
-                }) && predicate::column_has_window_count(state, &workspace.name, target_column, target_row)
+                        && window.layout.pos_in_scrolling_layout
+                            == Some((target_column, target_row))
+                }) && predicate::column_has_window_count(
+                    state,
+                    &workspace.name,
+                    target_column,
+                    target_row,
+                )
             },
         )
     }
@@ -379,11 +483,17 @@ impl Reconciler {
                 return Ok(());
             }
 
-            self.commands.action(Action::FocusWindow { id: window_id })?;
+            self.commands
+                .action(Action::FocusWindow { id: window_id })?;
             self.wait_for(
                 DEFAULT_TIMEOUT,
                 format!("window {:?} to become focused", app_id),
-                |state| state.windows.get(&window_id).is_some_and(|window| window.is_focused),
+                |state| {
+                    state
+                        .windows
+                        .get(&window_id)
+                        .is_some_and(|window| window.is_focused)
+                },
             )?;
 
             if current_row < target_row {
@@ -414,7 +524,12 @@ impl Reconciler {
         }
     }
 
-    fn apply_window_floating(&mut self, window_id: u64, floating: bool, app_id: &str) -> Result<()> {
+    fn apply_window_floating(
+        &mut self,
+        window_id: u64,
+        floating: bool,
+        app_id: &str,
+    ) -> Result<()> {
         let is_floating = self
             .state
             .windows
@@ -439,11 +554,21 @@ impl Reconciler {
         self.wait_for(
             DEFAULT_TIMEOUT,
             format!("window {:?} floating state to become {}", app_id, floating),
-            |state| state.windows.get(&window_id).is_some_and(|window| window.is_floating == floating),
+            |state| {
+                state
+                    .windows
+                    .get(&window_id)
+                    .is_some_and(|window| window.is_floating == floating)
+            },
         )
     }
 
-    fn apply_window_height(&mut self, window_id: u64, app_id: &str, height: SizeSpec) -> Result<()> {
+    fn apply_window_height(
+        &mut self,
+        window_id: u64,
+        app_id: &str,
+        height: SizeSpec,
+    ) -> Result<()> {
         self.commands.action(Action::SetWindowHeight {
             id: Some(window_id),
             change: height.to_size_change(),
@@ -470,44 +595,117 @@ impl Reconciler {
         Ok(())
     }
 
+    fn wait_for_spawned_window(
+        &mut self,
+        timeout: Duration,
+        label: &str,
+        before: &HashSet<u64>,
+        spec: &WindowSpec,
+    ) -> Result<u64> {
+        self.events
+            .wait_for(timeout, format!("window {label:?} to appear"), |state| {
+                Self::spawned_window_id_in_state(state, before, spec).is_some()
+            })?;
+        self.sync_state();
+
+        self.spawned_window_id(before, spec)
+            .ok_or_else(|| NiriAutostartError::MissingWindow(label.to_string()))
+    }
+
+    fn spawned_window_id(&self, before: &HashSet<u64>, spec: &WindowSpec) -> Option<u64> {
+        Self::spawned_window_id_in_state(&self.state, before, spec)
+    }
+
+    fn spawned_window_id_in_state(
+        state: &ActualState,
+        before: &HashSet<u64>,
+        spec: &WindowSpec,
+    ) -> Option<u64> {
+        state
+            .windows
+            .values()
+            .filter(|window| {
+                !before.contains(&window.id)
+                    && window.app_id.as_deref() == Some(spec.app_id.as_str())
+            })
+            .max_by_key(|window| (!window.is_floating, window.is_focused, window.id))
+            .map(|window| window.id)
+    }
+
+    fn record_runtime_window(
+        &mut self,
+        key: &WindowKey,
+        spec: &WindowSpec,
+        window_id: u64,
+    ) -> Result<()> {
+        let window = self
+            .state
+            .windows
+            .get(&window_id)
+            .cloned()
+            .ok_or_else(|| NiriAutostartError::MissingWindow(window_label(key, spec)))?;
+
+        self.runtime_state.record(key, spec, &window);
+        self.runtime_state.persist(&self.runtime_state_path)
+    }
+
     fn wait_for<F>(&mut self, timeout: Duration, what: String, predicate: F) -> Result<()>
     where
         F: Fn(&ActualState) -> bool,
     {
-        if predicate(&self.state) {
-            return Ok(());
-        }
+        self.events.wait_for(timeout, what, predicate)?;
+        self.sync_state();
+        Ok(())
+    }
 
-        let start = Instant::now();
-        loop {
-            let remaining = timeout
-                .checked_sub(start.elapsed())
-                .ok_or_else(|| NiriAutostartError::Timeout {
-                    what: what.clone(),
-                    timeout,
-                })?;
+    fn wait_for_stable<F>(
+        &mut self,
+        timeout: Duration,
+        quiet_for: Duration,
+        what: String,
+        predicate: F,
+    ) -> Result<()>
+    where
+        F: Fn(&ActualState) -> bool,
+    {
+        self.events
+            .wait_for_stable(timeout, quiet_for, what, predicate)?;
+        self.sync_state();
+        Ok(())
+    }
 
-            match self.events.recv_timeout(remaining) {
-                Ok(EventMessage::Event(event)) => {
-                    apply_event(&mut self.state, event);
-                    if predicate(&self.state) {
-                        return Ok(());
-                    }
-                }
-                Ok(EventMessage::Closed(message)) => {
-                    return Err(NiriAutostartError::EventStreamClosed(message));
-                }
-                Err(RecvTimeoutError::Timeout) => {
-                    return Err(NiriAutostartError::Timeout { what, timeout });
-                }
-                Err(RecvTimeoutError::Disconnected) => {
-                    return Err(NiriAutostartError::EventStreamClosed(
-                        "event thread disconnected".to_string(),
-                    ));
-                }
+    fn wait_until_quiet(
+        &mut self,
+        timeout: Duration,
+        quiet_for: Duration,
+        what: String,
+    ) -> Result<()> {
+        self.events.wait_until_quiet(timeout, quiet_for, what)?;
+        self.sync_state();
+        Ok(())
+    }
+
+    fn sync_state(&mut self) {
+        self.state = self.events.state();
+    }
+}
+
+fn app_id_counts(config: &Config) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+
+    for workspace in &config.workspaces {
+        for column in &workspace.columns {
+            for window in &column.windows {
+                *counts.entry(window.app_id.clone()).or_insert(0) += 1;
             }
         }
     }
+
+    counts
+}
+
+fn window_label(key: &WindowKey, spec: &WindowSpec) -> String {
+    format!("{} at {}", spec.app_id, key)
 }
 
 impl SizeSpec {

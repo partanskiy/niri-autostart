@@ -10,16 +10,24 @@ pub fn workspace_active(state: &ActualState, workspace_name: &str) -> bool {
         .is_some_and(|workspace| workspace.is_active)
 }
 
+#[cfg(test)]
 pub fn window_exists_by_app_id(state: &ActualState, app_id: &str) -> bool {
     state.window_by_app_id(app_id).is_some()
 }
 
-pub fn window_on_workspace(state: &ActualState, app_id: &str, workspace_name: &str) -> bool {
+pub fn window_id_on_workspace(state: &ActualState, window_id: u64, workspace_name: &str) -> bool {
+    let workspace_id = match state.workspace_id_by_name(workspace_name) {
+        Some(id) => id,
+        None => return false,
+    };
+
     state
-        .window_id_by_app_id_on_workspace(app_id, workspace_name)
-        .is_some()
+        .windows
+        .get(&window_id)
+        .is_some_and(|window| window.workspace_id == Some(workspace_id))
 }
 
+#[cfg(test)]
 pub fn window_at_position(
     state: &ActualState,
     app_id: &str,
@@ -39,6 +47,24 @@ pub fn window_at_position(
             window.workspace_id == Some(workspace_id)
                 && window.layout.pos_in_scrolling_layout == Some((column, row))
         })
+}
+
+pub fn window_id_at_position(
+    state: &ActualState,
+    window_id: u64,
+    workspace_name: &str,
+    column: usize,
+    row: usize,
+) -> bool {
+    let workspace_id = match state.workspace_id_by_name(workspace_name) {
+        Some(id) => id,
+        None => return false,
+    };
+
+    state.windows.get(&window_id).is_some_and(|window| {
+        window.workspace_id == Some(workspace_id)
+            && window.layout.pos_in_scrolling_layout == Some((column, row))
+    })
 }
 
 pub fn column_has_window_count(
@@ -129,7 +155,15 @@ mod tests {
     fn matches_position() {
         let state = state();
         assert!(window_at_position(&state, "fw-fastfetch", "firework", 1, 1));
-        assert!(!window_at_position(&state, "fw-fastfetch", "firework", 2, 1));
+        assert!(!window_at_position(
+            &state,
+            "fw-fastfetch",
+            "firework",
+            2,
+            1
+        ));
+        assert!(window_id_at_position(&state, 1, "firework", 1, 1));
+        assert!(!window_id_at_position(&state, 1, "firework", 2, 1));
     }
 
     #[test]

@@ -36,7 +36,6 @@ impl CommandClient {
             Err(message) => Err(NiriAutostartError::Niri(message)),
         }
     }
-
 }
 
 impl EventStream {
@@ -45,22 +44,28 @@ impl EventStream {
         let reply: Reply = socket.send(Request::EventStream)?;
         match reply {
             Ok(Response::Handled) => {}
-            Ok(_) => return Err(NiriAutostartError::UnexpectedReply { context: "event-stream" }),
+            Ok(_) => {
+                return Err(NiriAutostartError::UnexpectedReply {
+                    context: "event-stream",
+                });
+            }
             Err(message) => return Err(NiriAutostartError::Niri(message)),
         }
 
         let (tx, rx) = mpsc::channel();
         let mut read_event = socket.read_events();
-        let reader = thread::spawn(move || loop {
-            match read_event() {
-                Ok(event) => {
-                    if tx.send(EventMessage::Event(event)).is_err() {
+        let reader = thread::spawn(move || {
+            loop {
+                match read_event() {
+                    Ok(event) => {
+                        if tx.send(EventMessage::Event(event)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        let _ = tx.send(EventMessage::Closed(err.to_string()));
                         break;
                     }
-                }
-                Err(err) => {
-                    let _ = tx.send(EventMessage::Closed(err.to_string()));
-                    break;
                 }
             }
         });
@@ -69,5 +74,10 @@ impl EventStream {
             rx,
             _reader: reader,
         })
+    }
+
+    pub fn into_receiver(self) -> Receiver<EventMessage> {
+        let Self { rx, _reader } = self;
+        rx
     }
 }
