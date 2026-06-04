@@ -12,7 +12,10 @@ pub fn apply_event(state: &mut ActualState, event: Event) {
             state.rebuild_indices();
         }
         Event::WorkspaceActivated { id, focused } => {
-            let output = state.workspaces.get(&id).and_then(|workspace| workspace.output.clone());
+            let output = state
+                .workspaces
+                .get(&id)
+                .and_then(|workspace| workspace.output.clone());
 
             if let Some(output) = output {
                 for workspace in state.workspaces.values_mut() {
@@ -59,7 +62,10 @@ pub fn apply_event(state: &mut ActualState, event: Event) {
             }
             state.rebuild_indices();
         }
-        Event::WindowFocusTimestampChanged { id, focus_timestamp } => {
+        Event::WindowFocusTimestampChanged {
+            id,
+            focus_timestamp,
+        } => {
             if let Some(window) = state.windows.get_mut(&id) {
                 window.focus_timestamp = focus_timestamp;
             }

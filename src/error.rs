@@ -17,6 +17,18 @@ pub enum NiriAutostartError {
     #[error("failed to parse config from {path}: {message}")]
     ConfigParse { path: PathBuf, message: String },
 
+    #[error("failed to read runtime state from {path}: {source}")]
+    RuntimeStateRead { path: PathBuf, source: io::Error },
+
+    #[error("failed to write runtime state to {path}: {source}")]
+    RuntimeStateWrite { path: PathBuf, source: io::Error },
+
+    #[error("failed to parse runtime state from {path}: {message}")]
+    RuntimeStateParse { path: PathBuf, message: String },
+
+    #[error("failed to serialize runtime state: {0}")]
+    RuntimeStateSerialize(String),
+
     #[error("config validation failed: {0}")]
     Validation(String),
 
@@ -41,7 +53,9 @@ pub enum NiriAutostartError {
     #[error("window with app-id {0:?} was not found in niri state")]
     MissingWindow(String),
 
-    #[error("managed window {app_id:?} is in column {actual}, cannot consume it into column {expected_left} because it is not immediately to the right")]
+    #[error(
+        "managed window {app_id:?} is in column {actual}, cannot consume it into column {expected_left} because it is not immediately to the right"
+    )]
     NonAdjacentColumn {
         app_id: String,
         actual: usize,
