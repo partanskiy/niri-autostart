@@ -21,8 +21,8 @@ It is intended to replace ad-hoc startup shell scripts with a small event-driven
 - Declarative KDL config with `workspace`, `column` and `window`
 - Uses `niri-ipc` types directly
 - Waits on real `event-stream` state changes
-- Reuses existing windows by exact `app-id`
-- Prefers the matching tiled window on the target workspace when duplicates exist
+- Tracks windows it spawned in a runtime state file under `/tmp`
+- Reuses recorded live `window_id`s; falls back to exact `app-id` for app ids that are unique in the config
 - Can be launched directly from `startup.kdl`
 
 ## Installation
@@ -55,8 +55,21 @@ autostart {
                 proportion 1.0
             }
 
-            window app-id="cursor" {
-                command "cursor"
+            window app-id="kitty" {
+                command "terminal" "-e" "nvim"
+                height {
+                    proportion 1.0
+                }
+            }
+        }
+
+        column {
+            width {
+                proportion 1.0
+            }
+
+            window app-id="kitty" {
+                command "terminal" "-e" "fish" "-lc" "cl"
                 height {
                     proportion 1.0
                 }
@@ -113,29 +126,29 @@ autostart {
                 proportion 0.33333
             }
 
-            window app-id="fw-fastfetch" {
-                command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
+            window app-id="kitty" {
+                command "terminal" "-e" "fastfetch" "--dynamic-interval" "500" "--hide-cursor" "true"
                 height {
                     fixed 284
                 }
             }
 
-            window app-id="fw-tty-clock" {
-                command "terminal" "--class" "fw-tty-clock" "-e" "tty-clock" "-sc"
+            window app-id="kitty" {
+                command "terminal" "-e" "tty-clock" "-sc"
                 height {
                     fixed 207
                 }
             }
 
-            window app-id="fw-cava" {
-                command "terminal" "--class" "fw-cava" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
+            window app-id="kitty" {
+                command "terminal" "-e" "cava" "-p" "~/.config/cava/themes/noctalia"
                 height {
                     fixed 392
                 }
             }
 
-            window app-id="fw-cmatrix" {
-                command "terminal" "--class" "fw-cmatrix" "-e" "cmatrix"
+            window app-id="kitty" {
+                command "terminal" "-e" "cmatrix"
                 height {
                     fixed 172
                 }
@@ -146,15 +159,15 @@ autostart {
                 proportion 0.66667
             }
 
-            window app-id="fw-btop" {
-                command "terminal" "--class" "fw-btop" "-e" "btop"
+            window app-id="kitty" {
+                command "terminal" "-e" "btop"
                 height {
                     fixed 661
                 }
             }
 
-            window app-id="fw-asciiquarium" {
-                command "terminal" "--class" "fw-asciiquarium" "-e" "asciiquarium"
+            window app-id="kitty" {
+                command "terminal" "-e" "asciiquarium"
                 height {
                     fixed 404
                 }
@@ -168,8 +181,8 @@ autostart {
                 fixed 720
             }
 
-            window app-id="scratchpad" floating=true {
-                command "kitty" "--class" "scratchpad" "-1"
+            window app-id="kitty" floating=true {
+                command "terminal"
                 height {
                     proportion 1.0
                 }
@@ -183,10 +196,24 @@ This example shows the full schema:
 
 - multiple `workspace` blocks (monitor assignment is configured in niri itself)
 - `column` width as `fixed` or `proportion`
-- `window` matching by exact `app-id`
+- `window app-id` as the expected app id after spawn and as a unique-app fallback
+- repeated `app-id` values are allowed
 - `command` as an argv-style list
 - `height` as `fixed` or `proportion`
 - optional `floating=true`
+
+For repeated `app-id` values, `niri-autostart` does not require title or class
+markers. It records the concrete niri `window_id` that appeared after each `spawn`
+in:
+
+```text
+/tmp/niri-autostart/windows.json
+```
+
+On later runs in the same niri session, live recorded window ids are reused. If the
+state file is missing, windows with repeated app ids are spawned again because
+there is no reliable way to distinguish unrelated existing windows with the same
+app id.
 
 The default config path is:
 
