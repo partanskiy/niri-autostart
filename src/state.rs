@@ -45,7 +45,8 @@ impl ActualState {
             if let (Some(workspace_id), Some((column, row))) =
                 (window.workspace_id, window.layout.pos_in_scrolling_layout)
             {
-                self.positions.insert((workspace_id, column, row), window.id);
+                self.positions
+                    .insert((workspace_id, column, row), window.id);
             }
         }
     }
@@ -64,35 +65,46 @@ impl ActualState {
         app_id: &str,
         preferred_workspace: Option<&str>,
     ) -> Option<u64> {
-        let preferred_workspace_id = preferred_workspace.and_then(|name| self.workspace_id_by_name(name));
+        let preferred_workspace_id =
+            preferred_workspace.and_then(|name| self.workspace_id_by_name(name));
 
-        self.windows_by_app_id.get(app_id).and_then(|ids| {
-            ids.iter()
-                .filter_map(|id| self.windows.get(id).map(|window| (*id, window)))
-                .max_by_key(|(id, window)| {
-                    (
-                        preferred_workspace_id.is_some_and(|workspace_id| {
-                            window.workspace_id == Some(workspace_id)
-                        }),
-                        !window.is_floating,
-                        window.is_focused,
-                        *id,
-                    )
-                })
-                .map(|(id, _)| id)
-        })
+        self.windows_by_app_id
+            .get(app_id)?
+            .iter()
+            .filter_map(|id| self.windows.get(id).map(|window| (*id, window)))
+            .max_by_key(|window| {
+                (
+                    preferred_workspace_id
+                        .is_some_and(|workspace_id| window.1.workspace_id == Some(workspace_id)),
+                    !window.1.is_floating,
+                    window.1.is_focused,
+                    window.0,
+                )
+            })
+            .map(|(id, _)| id)
     }
 
+    #[cfg(test)]
     pub fn first_window_id_by_app_id(&self, app_id: &str) -> Option<u64> {
         self.preferred_window_id_by_app_id(app_id, None)
     }
 
-    pub fn window_id_by_app_id_on_workspace(&self, app_id: &str, workspace_name: &str) -> Option<u64> {
+    #[cfg(test)]
+    pub fn window_id_by_app_id_on_workspace(
+        &self,
+        app_id: &str,
+        workspace_name: &str,
+    ) -> Option<u64> {
         let workspace_id = self.workspace_id_by_name(workspace_name)?;
         self.preferred_window_id_by_app_id(app_id, Some(workspace_name))
-            .filter(|id| self.windows.get(id).is_some_and(|window| window.workspace_id == Some(workspace_id)))
+            .filter(|id| {
+                self.windows
+                    .get(id)
+                    .is_some_and(|window| window.workspace_id == Some(workspace_id))
+            })
     }
 
+    #[cfg(test)]
     pub fn window_by_app_id(&self, app_id: &str) -> Option<&Window> {
         self.first_window_id_by_app_id(app_id)
             .and_then(|id| self.windows.get(&id))
@@ -130,9 +142,20 @@ mod tests {
     use niri_ipc::{Timestamp, WindowLayout};
 
     fn window(id: u64, app_id: &str, workspace_id: u64, column: usize, row: usize) -> Window {
+        window_with_title(id, app_id, app_id, workspace_id, column, row)
+    }
+
+    fn window_with_title(
+        id: u64,
+        app_id: &str,
+        title: &str,
+        workspace_id: u64,
+        column: usize,
+        row: usize,
+    ) -> Window {
         Window {
             id,
-            title: Some(app_id.to_string()),
+            title: Some(title.to_string()),
             app_id: Some(app_id.to_string()),
             pid: Some(1),
             workspace_id: Some(workspace_id),
@@ -203,7 +226,11 @@ mod tests {
         let tiled_elsewhere = window(2, "org.telegram.desktop", 11, 1, 1);
         let tiled_on_internet = window(3, "org.telegram.desktop", 10, 2, 1);
 
-        state.replace_windows(vec![floating_on_internet, tiled_elsewhere, tiled_on_internet]);
+        state.replace_windows(vec![
+            floating_on_internet,
+            tiled_elsewhere,
+            tiled_on_internet,
+        ]);
 
         assert_eq!(
             state.window_id_by_app_id_on_workspace("org.telegram.desktop", "internet"),

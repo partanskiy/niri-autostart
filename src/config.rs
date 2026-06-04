@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -15,6 +14,8 @@ type AppResult<T> = crate::error::Result<T>;
 pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub state: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +133,9 @@ impl Config {
 
     pub fn default_path() -> AppResult<PathBuf> {
         if let Some(path) = env::var_os("XDG_CONFIG_HOME") {
-            return Ok(PathBuf::from(path).join("niri-autostart").join("config.kdl"));
+            return Ok(PathBuf::from(path)
+                .join("niri-autostart")
+                .join("config.kdl"));
         }
 
         if let Some(home) = env::var_os("HOME") {
@@ -158,8 +161,6 @@ impl Config {
     }
 
     fn validate(&self) -> AppResult<()> {
-        let mut app_ids = HashSet::new();
-
         if self.workspaces.is_empty() {
             return Err(NiriAutostartError::Validation(
                 "at least one `workspace` node is required".to_string(),
@@ -183,13 +184,6 @@ impl Config {
                 }
 
                 for window in &column.windows {
-                    if !app_ids.insert(window.app_id.clone()) {
-                        return Err(NiriAutostartError::Validation(format!(
-                            "duplicate app-id {:?} in config",
-                            window.app_id
-                        )));
-                    }
-
                     if window.command.is_empty() {
                         return Err(NiriAutostartError::Validation(format!(
                             "window {:?} must have a non-empty command",
@@ -282,8 +276,8 @@ mod tests {
                         width {
                             fixed 640
                         }
-                        window app-id="fw-fastfetch" {
-                            command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch"
+                        window app-id="kitty" {
+                            command "terminal" "-e" "fastfetch"
                             height {
                                 fixed 284
                             }
@@ -296,35 +290,59 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.workspaces.len(), 1);
-        assert_eq!(
-            config.workspaces[0].columns[0].windows[0].app_id,
-            "fw-fastfetch"
-        );
+        assert_eq!(config.workspaces[0].columns[0].windows[0].app_id, "kitty");
     }
 
     #[test]
-    fn rejects_duplicate_app_ids() {
-        let err = parse(
+    fn allows_duplicate_app_ids() {
+        let config = parse(
             r#"
             autostart {
-                workspace "firework" {
+                workspace "code" {
                     column {
                         width {
-                            fixed 640
+                            proportion 1.0
                         }
-                        window app-id="dup" {
-                            command "a"
+                        window app-id="kitty" {
+                            command "terminal" "-e" "nvim"
                             height {
-                                fixed 1
+                                proportion 1.0
                             }
                         }
                     }
                     column {
                         width {
+                            proportion 1.0
+                        }
+                        window app-id="kitty" {
+                            command "terminal" "-e" "fish" "-lc" "cl"
+                            height {
+                                proportion 1.0
+                            }
+                        }
+                    }
+                }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.workspaces[0].columns[0].windows[0].app_id, "kitty");
+        assert_eq!(config.workspaces[0].columns[1].windows[0].app_id, "kitty");
+    }
+
+    #[test]
+    fn rejects_title_property() {
+        let err = parse(
+            r#"
+            autostart {
+                workspace "code" {
+                    column {
+                        width {
                             fixed 640
                         }
-                        window app-id="dup" {
-                            command "b"
+                        window app-id="kitty" title="forbidden-title" {
+                            command "terminal"
                             height {
                                 fixed 1
                             }
@@ -336,7 +354,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("duplicate app-id"));
+        assert!(err.to_string().contains("unexpected"));
     }
 
     #[test]

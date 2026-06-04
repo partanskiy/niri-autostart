@@ -11,7 +11,7 @@
 
 ## IPC Types
 
-The implementation uses `niri-ipc = "=25.11.0"` directly and treats its IPC types as canonical:
+The implementation uses `niri-ipc = "=26.4.0"` directly and treats its IPC types as canonical:
 
 - `Request`
 - `Response`
@@ -39,8 +39,8 @@ autostart {
                 width {
                     proportion 0.33333
                 }
-                window app-id="fw-fastfetch" floating=true {
-                    command "terminal" "--class" "fw-fastfetch" "-e" "fastfetch"
+                window app-id="kitty" floating=true {
+                    command "terminal" "-e" "fastfetch"
                     height {
                         fixed 284
                     }
@@ -53,17 +53,22 @@ autostart {
 
 Rules in v1:
 
-- exact `app-id` matching only
-- `app-id` must be unique across the whole config
+- exact `app-id` fallback only for app ids that are unique in the config
+- repeated app ids are allowed
+- repeated app ids are identified by runtime state after `spawn`, not by title/class markers
 - no regex matching
-- no title matching
-- no PID matching
+- no PID matching as the primary identity
 - no include files
 
 Default config path:
 
 - `~/.config/niri-autostart/config.kdl`
 - overridable via `--config`
+
+Runtime state path:
+
+- `/tmp/niri-autostart/windows.json`
+- overridable via `--state`
 
 ## State and Reduction
 
@@ -77,6 +82,16 @@ The runtime state keeps:
   - app-id to window ids
   - `(workspace_id, column, row)` to window id
 - last `ConfigLoaded` status
+
+The persisted runtime state keeps, per config position:
+
+- workspace name
+- column index
+- row index
+- niri `window_id`
+- observed `app_id`
+- observed PID, when niri provides one
+- command argv from the config
 
 Reducer behavior:
 
@@ -105,7 +120,10 @@ Reconcile order:
 
 Window handling:
 
-- if the managed window is missing, spawn it
+- if a live recorded `window_id` exists for the config position, use it
+- otherwise, if the app id is unique in the config, fall back to exact `app-id`
+- otherwise, spawn and wait for a new window with the expected `app_id`
+- after spawn, record the resulting `window_id` in runtime state
 - if it exists on another workspace, move it
 - first window of a column is treated as the anchor of that column
 - later windows are merged into the column via `ConsumeWindowIntoColumn`

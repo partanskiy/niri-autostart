@@ -1,6 +1,6 @@
 [package]
 name = "niri-autostart"
-version = "0.1.12"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.94"
 description = "Declarative autostart and layout restoration for the niri Wayland compositor"
@@ -10,4 +10,6 @@ license = "GPL-3.0-or-later"
 clap = { version = "4.5.60", features = ["derive"] }
 knuffel = "3.2.0"
 niri-ipc = "=26.4.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 thiserror = "2.0.12"

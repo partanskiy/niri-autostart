@@ -232,11 +232,13 @@ dependencies = [
 
 [[package]]
 name = "niri-autostart"
-version = "0.1.12"
+version = "0.2.0"
 dependencies = [
  "clap",
  "knuffel",
  "niri-ipc",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 
