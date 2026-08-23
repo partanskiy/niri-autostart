@@ -26,6 +26,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkspaceSpec {
     pub name: String,
+    pub output: Option<String>,
     pub columns: Vec<ColumnSpec>,
 }
 
@@ -59,6 +60,8 @@ struct RawAutostartConfig {
 struct RawWorkspaceSpec {
     #[knuffel(argument)]
     name: String,
+    #[knuffel(property)]
+    output: Option<String>,
     #[knuffel(children(name = "column"))]
     columns: Vec<RawColumnSpec>,
 }
@@ -202,6 +205,7 @@ impl WorkspaceSpec {
     fn from_raw(raw: RawWorkspaceSpec) -> AppResult<Self> {
         Ok(Self {
             name: raw.name,
+            output: raw.output,
             columns: raw
                 .columns
                 .into_iter()
@@ -329,6 +333,32 @@ mod tests {
 
         assert_eq!(config.workspaces[0].columns[0].windows[0].app_id, "kitty");
         assert_eq!(config.workspaces[0].columns[1].windows[0].app_id, "kitty");
+    }
+
+    #[test]
+    fn parses_optional_workspace_output() {
+        let config = parse(
+            r#"
+            autostart {
+                workspace "chat" output="HDMI-A-1" {
+                    column {
+                        width {
+                            proportion 1.0
+                        }
+                        window app-id="discord" {
+                            command "discord"
+                            height {
+                                proportion 1.0
+                            }
+                        }
+                    }
+                }
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.workspaces[0].output.as_deref(), Some("HDMI-A-1"));
     }
 
     #[test]
