@@ -10,6 +10,12 @@ pub fn workspace_active(state: &ActualState, workspace_name: &str) -> bool {
         .is_some_and(|workspace| workspace.is_active)
 }
 
+pub fn workspace_on_output(state: &ActualState, workspace_name: &str, output_name: &str) -> bool {
+    state
+        .workspace_by_name(workspace_name)
+        .is_some_and(|workspace| workspace.output.as_deref() == Some(output_name))
+}
+
 #[cfg(test)]
 pub fn window_exists_by_app_id(state: &ActualState, app_id: &str) -> bool {
     state.window_by_app_id(app_id).is_some()
@@ -149,6 +155,13 @@ mod tests {
         let state = state();
         assert!(window_exists_by_app_id(&state, "fw-fastfetch"));
         assert!(!window_exists_by_app_id(&state, "kitty"));
+    }
+
+    #[test]
+    fn matches_workspace_output() {
+        let state = state();
+        assert!(workspace_on_output(&state, "firework", "HDMI-A-1"));
+        assert!(!workspace_on_output(&state, "firework", "eDP-1"));
     }
 
     #[test]

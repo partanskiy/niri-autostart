@@ -7,7 +7,7 @@
 
 ## About
 
-`niri-autostart` reads a KDL file, subscribes to the `niri` IPC event stream, keeps an in-memory model of workspaces and windows, and converges the compositor toward the declared layout. Workspace-to-monitor assignment is left to niri's own configuration.
+`niri-autostart` reads a KDL file, subscribes to the `niri` IPC event stream, keeps an in-memory model of workspaces and windows, and converges the compositor toward the declared layout. Workspaces can optionally be assigned to a specific output.
 
 It is intended to replace ad-hoc startup shell scripts with a small event-driven tool:
 
@@ -18,7 +18,7 @@ It is intended to replace ad-hoc startup shell scripts with a small event-driven
 
 ## Features
 
-- Declarative KDL config with `workspace`, `column` and `window`
+- Declarative KDL config with `workspace`, optional workspace `output`, `column` and `window`
 - Uses `niri-ipc` types directly
 - Waits on real `event-stream` state changes
 - Tracks windows it spawned in a runtime state file under `/tmp`
@@ -105,7 +105,7 @@ autostart {
         }
     }
 
-    workspace "notes" {
+    workspace "notes" output="HDMI-A-1" {
         column {
             width {
                 fixed 960
@@ -194,7 +194,7 @@ autostart {
 
 This example shows the full schema:
 
-- multiple `workspace` blocks (monitor assignment is configured in niri itself)
+- multiple `workspace` blocks with optional `output` assignment
 - `column` width as `fixed` or `proportion`
 - `window app-id` as the expected app id after spawn and as a unique-app fallback
 - repeated `app-id` values are allowed
