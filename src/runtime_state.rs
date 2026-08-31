@@ -1,6 +1,6 @@
-use std::env;
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use niri_ipc::Window;
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::WindowSpec;
 use crate::error::{NiriAutostartError, Result};
+use crate::paths;
 use crate::state::ActualState;
 
 const STATE_VERSION: u32 = 1;
@@ -63,8 +64,8 @@ impl Default for RuntimeState {
 }
 
 impl RuntimeState {
-    pub fn default_path() -> PathBuf {
-        env::temp_dir().join("niri-autostart").join("windows.json")
+    pub fn default_path() -> Result<PathBuf> {
+        paths::default_runtime_state_path()
     }
 
     pub fn load(path: &Path) -> Result<Self> {
@@ -90,19 +91,46 @@ impl RuntimeState {
 
     pub fn persist(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|source| NiriAutostartError::RuntimeStateWrite {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            let mut builder = fs::DirBuilder::new();
+            builder.recursive(true).mode(0o700);
+            builder
+                .create(parent)
+                .map_err(|source| NiriAutostartError::RuntimeStateWrite {
+                    path: parent.to_path_buf(),
+                    source,
+                })?;
         }
 
         let text = serde_json::to_string_pretty(self)
             .map_err(|err| NiriAutostartError::RuntimeStateSerialize(err.to_string()))?;
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, text).map_err(|source| NiriAutostartError::RuntimeStateWrite {
-            path: tmp.clone(),
-            source,
+        let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .map_err(|source| NiriAutostartError::RuntimeStateWrite {
+                path: tmp.clone(),
+                source,
+            })?;
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|source| NiriAutostartError::RuntimeStateWrite {
+                path: tmp.clone(),
+                source,
+            })?;
+        file.write_all(text.as_bytes()).map_err(|source| {
+            NiriAutostartError::RuntimeStateWrite {
+                path: tmp.clone(),
+                source,
+            }
         })?;
+        file.sync_all()
+            .map_err(|source| NiriAutostartError::RuntimeStateWrite {
+                path: tmp.clone(),
+                source,
+            })?;
+        drop(file);
         fs::rename(&tmp, path).map_err(|source| NiriAutostartError::RuntimeStateWrite {
             path: path.to_path_buf(),
             source,
@@ -167,6 +195,18 @@ impl StoredWindow {
 mod tests {
     use super::*;
     use niri_ipc::{Timestamp, WindowLayout};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(0);
+
+    fn test_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "niri-autostart-state-test-{}-{}-{}",
+            std::process::id(),
+            NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed),
+            label
+        ))
+    }
 
     fn spec(command: &[&str]) -> WindowSpec {
         WindowSpec {
@@ -228,5 +268,32 @@ mod tests {
 
         assert_eq!(runtime.window_id(&key, &window_spec, &state), None);
         assert_eq!(runtime.window_id(&key, &changed_spec, &state), None);
+    }
+
+    #[test]
+    fn persists_atomically_with_private_permissions() {
+        let root = test_dir("permissions");
+        let path = root.join("niri-autostart").join("windows.json");
+        let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+        let runtime = RuntimeState::default();
+
+        runtime.persist(&path).unwrap();
+
+        assert_eq!(RuntimeState::load(&path).unwrap(), runtime);
+        assert_eq!(
+            fs::metadata(path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!tmp.exists());
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -2,6 +2,7 @@ mod config;
 mod error;
 mod event_adapter;
 mod ipc;
+mod paths;
 mod predicate;
 mod reconcile;
 mod reducer;
@@ -21,7 +22,10 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     let config_path = resolve_config_path(&cli)?;
     let config = Config::load(&config_path)?;
-    let runtime_state_path = cli.state.clone().unwrap_or_else(RuntimeState::default_path);
+    let runtime_state_path = match &cli.state {
+        Some(path) => path.clone(),
+        None => RuntimeState::default_path()?,
+    };
     let runtime_state = RuntimeState::load(&runtime_state_path)?;
 
     let events = EventAdapter::connect(std::time::Duration::from_secs(10))?;

@@ -8,8 +8,13 @@ pub type Result<T> = std::result::Result<T, NiriAutostartError>;
 
 #[derive(Debug, Error)]
 pub enum NiriAutostartError {
-    #[error("cannot determine the default config path: neither XDG_CONFIG_HOME nor HOME is set")]
+    #[error(
+        "cannot determine the default config path: XDG_CONFIG_HOME is unset or not absolute, and HOME does not provide an absolute fallback"
+    )]
     MissingDefaultConfigBase,
+
+    #[error("refusing to use insecure runtime directory {path}: expected an owned 0700 directory")]
+    InsecureRuntimeDirectory { path: PathBuf },
 
     #[error("failed to read config from {path}: {source}")]
     ConfigRead { path: PathBuf, source: io::Error },
