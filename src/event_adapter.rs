@@ -3,7 +3,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use niri_ipc::Event;
+use niri_ipc::{Event, Window, Workspace};
 
 use crate::error::{NiriAutostartError, Result};
 use crate::ipc::{EventMessage, EventStream};
@@ -39,9 +39,18 @@ impl EventAdapter {
                 let (lock, cvar) = &*applier_inner;
                 let mut guard = lock.lock().expect("event adapter lock poisoned");
 
-                match message {
+                let should_notify = match message {
                     EventMessage::Event(event) => {
-                        guard.seq += 1;
+                        let saw_initial_state = match &event {
+                            Event::WorkspacesChanged { .. } => !guard.saw_workspaces,
+                            Event::WindowsChanged { .. } => !guard.saw_windows,
+                            _ => false,
+                        };
+                        let affects_reconciliation =
+                            event_affects_reconciliation(&guard.state, &event);
+                        if affects_reconciliation {
+                            guard.seq += 1;
+                        }
                         let seq = guard.seq;
 
                         if matches!(event, Event::WorkspacesChanged { .. }) {
@@ -56,13 +65,17 @@ impl EventAdapter {
                         while guard.history.len() > HISTORY_LIMIT {
                             guard.history.pop_front();
                         }
+                        affects_reconciliation || saw_initial_state
                     }
                     EventMessage::Closed(message) => {
                         guard.closed = Some(message);
+                        true
                     }
-                }
+                };
 
-                cvar.notify_all();
+                if should_notify {
+                    cvar.notify_all();
+                }
             }
         });
 
@@ -227,5 +240,129 @@ impl EventAdapter {
                 return Err(NiriAutostartError::Timeout { what, timeout });
             }
         }
+    }
+}
+
+fn event_affects_reconciliation(state: &ActualState, event: &Event) -> bool {
+    match event {
+        Event::WorkspacesChanged { workspaces } => {
+            state.workspaces.len() != workspaces.len()
+                || workspaces.iter().any(|workspace| {
+                    state
+                        .workspaces
+                        .get(&workspace.id)
+                        .is_none_or(|current| !workspace_fields_equal(current, workspace))
+                })
+        }
+        Event::WorkspaceActivated { .. } | Event::WorkspaceActiveWindowChanged { .. } => true,
+        Event::WindowsChanged { windows } => {
+            state.windows.len() != windows.len()
+                || windows.iter().any(|window| {
+                    state
+                        .windows
+                        .get(&window.id)
+                        .is_none_or(|current| !window_fields_equal(current, window))
+                })
+        }
+        Event::WindowOpenedOrChanged { window } => {
+            let changes_other_focus = window.is_focused
+                && state
+                    .windows
+                    .values()
+                    .any(|current| current.id != window.id && current.is_focused);
+            changes_other_focus
+                || state
+                    .windows
+                    .get(&window.id)
+                    .is_none_or(|current| !window_fields_equal(current, window))
+        }
+        Event::WindowClosed { id } => state.windows.contains_key(id),
+        Event::WindowFocusChanged { .. } => true,
+        Event::WindowLayoutsChanged { changes } => changes.iter().any(|(id, layout)| {
+            state.windows.get(id).is_some_and(|window| {
+                window.layout.pos_in_scrolling_layout != layout.pos_in_scrolling_layout
+                    || window.layout.tile_size != layout.tile_size
+            })
+        }),
+        _ => false,
+    }
+}
+
+fn workspace_fields_equal(left: &Workspace, right: &Workspace) -> bool {
+    left.id == right.id
+        && left.idx == right.idx
+        && left.name == right.name
+        && left.output == right.output
+        && left.is_active == right.is_active
+        && left.is_focused == right.is_focused
+        && left.active_window_id == right.active_window_id
+}
+
+fn window_fields_equal(left: &Window, right: &Window) -> bool {
+    left.id == right.id
+        && left.app_id == right.app_id
+        && left.workspace_id == right.workspace_id
+        && left.is_focused == right.is_focused
+        && left.is_floating == right.is_floating
+        && left.layout.pos_in_scrolling_layout == right.layout.pos_in_scrolling_layout
+        && left.layout.tile_size == right.layout.tile_size
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use niri_ipc::{Timestamp, WindowLayout};
+
+    fn window() -> Window {
+        Window {
+            id: 1,
+            title: Some("spinner 1".into()),
+            app_id: Some("kitty".into()),
+            pid: Some(1),
+            workspace_id: Some(1),
+            is_focused: true,
+            is_floating: false,
+            is_urgent: false,
+            layout: WindowLayout {
+                pos_in_scrolling_layout: Some((1, 1)),
+                tile_size: (100.0, 100.0),
+                window_size: (100, 100),
+                tile_pos_in_workspace_view: None,
+                window_offset_in_tile: (0.0, 0.0),
+            },
+            focus_timestamp: Some(Timestamp { secs: 0, nanos: 0 }),
+        }
+    }
+
+    fn state() -> ActualState {
+        let mut state = ActualState::default();
+        state.replace_windows(vec![window()]);
+        state
+    }
+
+    #[test]
+    fn ignores_title_only_window_updates() {
+        let state = state();
+        let mut changed = window();
+        changed.title = Some("spinner 2".into());
+
+        assert!(!event_affects_reconciliation(
+            &state,
+            &Event::WindowOpenedOrChanged { window: changed }
+        ));
+    }
+
+    #[test]
+    fn observes_window_layout_updates() {
+        let state = state();
+        let mut layout = window().layout;
+        layout.tile_size = (200.0, 100.0);
+
+        assert!(event_affects_reconciliation(
+            &state,
+            &Event::WindowLayoutsChanged {
+                changes: vec![(1, layout)]
+            }
+        ));
     }
 }

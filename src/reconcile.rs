@@ -163,6 +163,9 @@ impl Reconciler {
             return Err(NiriAutostartError::MissingWorkspace(workspace.name.clone()));
         }
 
+        if let Some(output) = &workspace.output {
+            self.ensure_workspace_output(&workspace.name, output)?;
+        }
         self.ensure_workspace_active(&workspace.name)?;
 
         for (column_idx, column) in workspace.columns.iter().enumerate() {
@@ -277,6 +280,22 @@ impl Reconciler {
             DEFAULT_TIMEOUT,
             format!("workspace {workspace:?} to become active"),
             |state| predicate::workspace_active(state, workspace),
+        )
+    }
+
+    fn ensure_workspace_output(&mut self, workspace: &str, output: &str) -> Result<()> {
+        if predicate::workspace_on_output(&self.state, workspace, output) {
+            return Ok(());
+        }
+
+        self.commands.action(Action::MoveWorkspaceToMonitor {
+            output: output.to_string(),
+            reference: Some(WorkspaceReferenceArg::Name(workspace.to_string())),
+        })?;
+        self.wait_for(
+            DEFAULT_TIMEOUT,
+            format!("workspace {workspace:?} to move to output {output:?}"),
+            |state| predicate::workspace_on_output(state, workspace, output),
         )
     }
 
