@@ -62,13 +62,19 @@ Rules in v1:
 
 Default config path:
 
-- `~/.config/niri-autostart/config.kdl`
+- `$XDG_CONFIG_HOME/niri-autostart/config.kdl`
+- `$HOME/.config/niri-autostart/config.kdl` when `XDG_CONFIG_HOME` is unset, empty, or relative
 - overridable via `--config`
 
 Runtime state path:
 
-- `/tmp/niri-autostart/windows.json`
+- `$XDG_RUNTIME_DIR/niri-autostart/windows.json`
+- secure fallback to `/run/user/<uid>/niri-autostart/windows.json`, then a private `/tmp/niri-autostart-runtime-<uid>/windows.json`
 - overridable via `--state`
+
+All XDG environment paths must be absolute. The runtime base must also be owned
+by the current user with mode `0700`. Newly created application directories use
+mode `0700`, and runtime state is atomically replaced with mode `0600`.
 
 ## State and Reduction
 

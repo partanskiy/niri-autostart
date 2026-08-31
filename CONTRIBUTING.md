@@ -1,212 +1,194 @@
 # Contributing to niri-autostart
 
-Thanks for taking the time to contribute. This document describes the
-branching model, commit style, and release flow used in this repository.
+Thanks for contributing. This document is the source of truth for branches,
+commits, pull requests, and releases.
 
-> History before `v0.1.12` used a different, ad-hoc flow (direct commits to
-> `main`, inline version bumps). Everything from `v0.1.12` onward follows the
-> rules below — please ignore the older history as a style reference.
+History before `v0.1.12` used a different, ad-hoc workflow. Do not use it as a
+style reference.
 
-## Branches
+## Branch model
 
-- **`main`** — release branch. Contains only released versions; one commit
-  per tagged release (`v*.*.*`). Contributors do not interact with `main` —
-  releases are cut by maintainers (see [Releases](#release-process-maintainers)).
-- **`dev`** — integration branch. All real development happens here. All
-  contributor PRs target `dev`.
+- `dev` is the integration branch. Feature and fix PRs always target `dev`.
+- `main` is the release branch. It contains one squash commit per release and
+  is updated only by release PRs from `dev`.
+- Release tags use `vMAJOR.MINOR.PATCH` and point at the corresponding squash
+  commit on `main`.
+
+Never develop directly on `main`. Maintainers should not merge new work into
+`dev` while a release PR is being merged and synchronized back.
 
 ## Contributor workflow
 
-The flow below uses [`gh`](https://cli.github.com/) end-to-end. If you do not
-have `gh` installed, the equivalent web-UI steps work too — the rules
-(branch off `dev`, target `dev`, follow the commit style) are what matter.
+The examples use [`gh`](https://cli.github.com/), but the same branch and merge
+rules apply when using another Git client.
 
-1. Fork the repository and clone your fork. `gh repo fork --clone` does both
-   in one step and sets `upstream` to point at the canonical repository:
+1. Fork and clone the repository:
 
    ```sh
    gh repo fork partanskiy/niri-autostart --clone
    cd niri-autostart
    ```
 
-   If you already have a clone of the upstream, run `gh repo fork --remote`
-   from inside it instead — it adds your fork as a remote without recloning.
+   In this layout, `origin` is your fork and `upstream` is the canonical
+   repository. If you already cloned upstream, `gh repo fork --remote` adds the
+   fork without creating another clone.
 
-2. Branch off `dev` (sync from upstream first):
+2. Start from the latest `dev`:
 
    ```sh
-   git switch dev
-   git pull upstream dev
-   git switch -c feat/short-description
+   git fetch upstream dev
+   git switch -c fix/short-description upstream/dev
    ```
 
-3. Make your changes. Keep commits small and well-named (see
-   [Commit messages](#commit-messages)). Multiple commits per PR are fine
-   and encouraged — they are preserved on `dev`.
-
-4. Push the branch to your fork and open a pull request against
-   `partanskiy/niri-autostart:dev`:
+3. Make focused commits, then run the local quality gate:
 
    ```sh
-   git push -u origin feat/short-description
+   cargo fmt --all -- --check
+   cargo test --all-targets
+   cargo clippy --all-targets -- -D warnings
+   ```
+
+4. Push the branch and open one PR into `dev`:
+
+   ```sh
+   git push -u origin fix/short-description
    gh pr create \
      --repo partanskiy/niri-autostart \
      --base dev \
-     --title "feat: short description" \
-     --body  "Why this change is needed and what it does."
+     --title "fix: short description" \
+     --body "Explain why the change is needed and what it does."
    ```
 
-   `gh pr create --web` opens the prefilled PR form in the browser if you
-   prefer to write the description there.
-
-5. While review is in progress:
-
-   ```sh
-   gh pr status                       # see your PR's review/CI state
-   gh pr checks                       # tail CI results
-   gh pr view --web                   # open the PR in the browser
-   ```
-
-   Push follow-up commits to the same branch — the PR updates automatically.
-   Do not force-push to rewrite history that reviewers have already seen
-   unless asked; a maintainer will tidy commits at merge time if needed.
+5. Push review fixes to the same branch. Avoid rewriting commits reviewers have
+   already seen unless a maintainer asks for it.
 
 ## Commit messages
 
-Your commits are preserved verbatim on `dev` (maintainers merge with rebase,
-not squash), so author and message stay yours. Use
-[Conventional Commits](https://www.conventionalcommits.org/):
+Development commits use
+[Conventional Commits](https://www.conventionalcommits.org/). The common types
+are:
 
-| Prefix      | Use for                                                    |
-| ----------- | ---------------------------------------------------------- |
-| `feat:`     | user-visible new functionality                             |
-| `fix:`      | bug fix                                                    |
-| `chore:`    | tooling, deps, version bumps, no behavior change           |
-| `refactor:` | internal restructuring, no behavior change                 |
-| `docs:`     | documentation only                                         |
-| `ci:`       | GitHub Actions / pipelines                                 |
-| `test:`     | tests only                                                 |
-| `perf:`     | performance change with no functional difference           |
+| Type | Purpose |
+| --- | --- |
+| `feat:` | User-visible functionality |
+| `fix:` | Bug fix |
+| `docs:` | Documentation only |
+| `test:` | Tests only |
+| `refactor:` | Internal change without a behavior change |
+| `perf:` | Performance improvement |
+| `ci:` | CI or release automation |
+| `chore:` | Tooling, dependency, or version maintenance |
 
-Rules:
+Use an imperative, lowercase subject without a trailing period. Keep it around
+72 characters or fewer. Add a body when the reason is not obvious from the
+diff. Scopes such as `fix(ipc): ...` are welcome when useful.
 
-- Subject in imperative mood, lowercase after the prefix, no trailing
-  period.
-- Keep the subject under ~72 characters.
-- If a scope helps, use `feat(ipc): ...` style.
-- Put the "why" in the body when it is not obvious from the diff.
+Examples:
 
-Examples (real commits from the repo):
-
+```text
+fix: pin niri-ipc version
+feat: add installation instructions
+docs: document XDG runtime fallback
+chore: bump to v0.3.2
 ```
-fix: Pin niri-ipc version
-fix: Update for compatibility with Niri 26.04
-feat: Add installation section to README
-chore: bump to v0.1.12
-```
-
-## Local development
-
-```sh
-cargo build
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all
-```
-
-Please make sure `cargo fmt` and `cargo clippy` are clean before opening a
-PR.
 
 ## Pull request checklist
 
-- [ ] Branched off latest `dev`.
-- [ ] Commits follow the [commit message](#commit-messages) style.
-- [ ] `cargo fmt`, `cargo clippy`, `cargo test` pass locally.
+- [ ] The branch starts from current `dev`.
+- [ ] The PR targets `dev`.
+- [ ] Commits follow the message convention.
+- [ ] User-visible behavior and paths are documented.
+- [ ] Formatting, tests, and Clippy pass locally.
 
----
+## Maintainer workflow
 
-## Maintainers
+### Development PRs
 
-This section is for repository maintainers. Contributors do not need to
-follow it.
-
-### Merging into `dev`
-
-Merge contributor PRs into `dev` with **Rebase and merge**. Rebase keeps the
-original commits and their authorship, which is why we ask contributors to
-write Conventional Commit messages — they end up on `dev` unchanged.
-
-If a PR has noisy commits ("wip", "fix typo", "address review") ask the
-author to clean them up (or do it yourself) before rebasing.
-
-Full `gh` flow:
+Merge PRs into `dev` with **Rebase and merge**. This preserves their individual
+commits and authors on the integration branch.
 
 ```sh
-gh pr view <num>                        # sanity-check title, base, commits
-gh pr checks <num>                      # confirm CI is green
-gh pr review <num> --approve            # optional: leave an approval
-gh pr merge  <num> --rebase --delete-branch
+gh pr view <number>
+gh pr checks <number>
+gh pr merge <number> --rebase --delete-branch
 ```
 
-`--rebase` is the squash/merge/rebase selector — it must be `--rebase` for
-PRs into `dev`. `--delete-branch` removes the contributor's topic branch on
-the fork side after the merge.
+Ask for noisy `wip` or review-fix commits to be cleaned up before merging.
 
-### Release process
+### Releases
 
-Releases are always cut from `dev` into `main` and are **always** merged
-with **Squash and merge** — no exceptions.
+Releases move from `dev` to `main` through exactly one PR and use **Squash and
+merge**. Do not merge other work into `dev` until step 5 is complete.
 
-1. On `dev` (via a normal PR), bump the version in `Cargo.toml` and refresh
-   `Cargo.lock` with a commit named `chore: bump to vX.Y.Z`.
+1. Choose the next version according to [SemVer](https://semver.org/). In a
+   normal PR to `dev`, update `Cargo.toml` and `Cargo.lock` in a commit named:
 
-2. Open a release PR `dev` → `main`:
+   ```text
+   chore: bump to vX.Y.Z
+   ```
+
+2. Confirm CI is green, then open the release PR:
 
    ```sh
    gh pr create \
      --base main \
      --head dev \
      --title "vX.Y.Z" \
-     --body  "Release vX.Y.Z."
+     --body "Release vX.Y.Z."
    ```
 
-   The PR title is set to the bare version on purpose — see step 3.
-
-3. Merge the release PR with **Squash and merge**. The squash commit title
-   must be exactly the version, e.g. `v0.1.12` — no prefix, no extra words.
-   This is the only commit style on `main`. Use `gh` to enforce both the
-   strategy and the subject:
+3. Squash-merge it. The commit subject on `main` must be exactly the bare
+   version:
 
    ```sh
-   gh pr merge <num> \
+   gh pr checks <number>
+   gh pr merge <number> \
      --squash \
      --subject "vX.Y.Z" \
-     --body    ""
+     --body ""
    ```
 
-   Do **not** pass `--delete-branch` — `dev` must survive the merge.
+   Do not pass `--delete-branch`: `dev` is permanent.
 
-4. Tag the resulting squash commit on `main` with the same name and push
-   the tag:
+4. Fetch the resulting release commit, verify its subject, and create an
+   **annotated** tag:
 
    ```sh
-   git switch main
-   git pull
-   git tag vX.Y.Z
+   git fetch origin main
+   git log -1 --format='%h %s' origin/main
+   git tag -a vX.Y.Z origin/main -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-5. Pushing the tag triggers `.github/workflows/release.yml`, which builds
-   the binaries and creates the GitHub release. On success,
-   `.github/workflows/aur.yml` updates the AUR packages. Watch the run with:
+   Annotated tags are required because the AUR workflow resolves the peeled
+   `refs/tags/v*.*.*^{}` ref. Never replace or force-push a published tag.
+
+5. Immediately merge the release commit back into `dev`. The tree comparison
+   must be empty because no new development was merged during the release:
 
    ```sh
-   gh run watch
-   gh release view vX.Y.Z
+   git switch dev
+   git pull --ff-only origin dev
+   git diff --exit-code HEAD origin/main
+   git merge --no-ff origin/main -m "chore: sync main after vX.Y.Z release"
+   git push origin dev
    ```
 
-Notes:
+   Squash merge creates a new commit that exists only on `main`. This sync makes
+   it an ancestor of `dev`, preventing old release changes from reappearing in
+   the next release PR. It is release bookkeeping and is the only direct update
+   allowed on `dev`.
 
-- Versioning follows [SemVer](https://semver.org/): bump MAJOR for breaking
-  changes, MINOR for new features, PATCH for bug fixes.
-- The tag name and the squash commit title must match exactly.
+6. Pushing the tag triggers `.github/workflows/release.yml`; a successful
+   release then triggers `.github/workflows/aur.yml`. Verify both workflows,
+   the release assets, and both AUR packages:
+
+   ```sh
+   gh run list --workflow release.yml --limit 1
+   gh run list --workflow aur.yml --limit 1
+   gh release view vX.Y.Z
+   paru -Si niri-autostart niri-autostart-bin
+   ```
+
+The release is complete only after the GitHub release exists, both AUR entries
+show the new version, and `main` is an ancestor of `dev`.
