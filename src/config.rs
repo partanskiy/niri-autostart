@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 
 use crate::error::NiriAutostartError;
+use crate::paths;
 
 type AppResult<T> = crate::error::Result<T>;
 
@@ -135,20 +135,7 @@ impl Config {
     }
 
     pub fn default_path() -> AppResult<PathBuf> {
-        if let Some(path) = env::var_os("XDG_CONFIG_HOME") {
-            return Ok(PathBuf::from(path)
-                .join("niri-autostart")
-                .join("config.kdl"));
-        }
-
-        if let Some(home) = env::var_os("HOME") {
-            return Ok(PathBuf::from(home)
-                .join(".config")
-                .join("niri-autostart")
-                .join("config.kdl"));
-        }
-
-        Err(NiriAutostartError::MissingDefaultConfigBase)
+        paths::default_config_path()
     }
 
     fn from_raw(raw: RawAutostartConfig) -> AppResult<Self> {
