@@ -255,17 +255,25 @@ impl Reconciler {
             positioned.push((key, window, window_id));
         }
 
-        self.ensure_workspace_active(&workspace.name)?;
-        self.commands.action(Action::FocusColumn {
-            index: column_index,
-        })?;
-        self.commands.action(Action::SetColumnWidth {
-            change: column.width.to_size_change(),
-        })?;
+        if positioned
+            .iter()
+            .any(|(_, window, _)| scrolling_layout_target(window, column_index, 1).is_some())
+        {
+            self.ensure_workspace_active(&workspace.name)?;
+            self.commands.action(Action::FocusColumn {
+                index: column_index,
+            })?;
+            self.commands.action(Action::SetColumnWidth {
+                change: column.width.to_size_change(),
+            })?;
+        }
 
         for (key, window, window_id) in positioned {
             let label = window_label(&key, window);
             self.apply_window_floating(window_id, window.floating, &label)?;
+            if window.floating {
+                self.apply_window_width(window_id, &label, column.width)?;
+            }
             self.apply_window_height(window_id, &label, window.height)?;
         }
 
@@ -350,14 +358,18 @@ impl Reconciler {
     ) -> Result<()> {
         let label = window_label(key, spec);
         self.apply_window_floating(window_id, spec.floating, &label)?;
-        self.ensure_window_row(window_id, &label, 1)?;
+        let Some((target_column, target_row)) = scrolling_layout_target(spec, target_column, 1)
+        else {
+            return Ok(());
+        };
+        self.ensure_window_row(window_id, &label, target_row)?;
 
         if predicate::window_id_at_position(
             &self.state,
             window_id,
             &workspace.name,
             target_column,
-            1,
+            target_row,
         ) {
             return Ok(());
         }
@@ -380,11 +392,15 @@ impl Reconciler {
         })?;
         self.wait_for(
             DEFAULT_TIMEOUT,
-            format!("window {:?} to reach column {} row 1", label, target_column),
+            format!(
+                "window {:?} to reach column {} row {}",
+                label, target_column, target_row
+            ),
             |state| {
                 state.windows.get(&window_id).is_some_and(|window| {
                     window.workspace_id == state.workspace_id_by_name(&workspace.name)
-                        && window.layout.pos_in_scrolling_layout == Some((target_column, 1))
+                        && window.layout.pos_in_scrolling_layout
+                            == Some((target_column, target_row))
                 })
             },
         )
@@ -401,6 +417,11 @@ impl Reconciler {
     ) -> Result<()> {
         let label = window_label(key, spec);
         self.apply_window_floating(window_id, spec.floating, &label)?;
+        let Some((target_column, target_row)) =
+            scrolling_layout_target(spec, target_column, target_row)
+        else {
+            return Ok(());
+        };
 
         if predicate::window_id_at_position(
             &self.state,
@@ -614,6 +635,27 @@ impl Reconciler {
         Ok(())
     }
 
+    fn apply_window_width(&mut self, window_id: u64, app_id: &str, width: SizeSpec) -> Result<()> {
+        self.commands.action(Action::SetWindowWidth {
+            id: Some(window_id),
+            change: width.to_size_change(),
+        })?;
+
+        if let SizeSpec::Fixed(expected) = width {
+            self.wait_for(
+                DEFAULT_TIMEOUT,
+                format!("window {:?} width to become {}", app_id, expected),
+                |state| {
+                    state.windows.get(&window_id).is_some_and(|window| {
+                        (window.layout.tile_size.0 - f64::from(expected)).abs() <= 1.0
+                    })
+                },
+            )?;
+        }
+
+        Ok(())
+    }
+
     fn wait_for_spawned_window(
         &mut self,
         timeout: Duration,
@@ -725,6 +767,10 @@ fn app_id_counts(config: &Config) -> HashMap<String, usize> {
 
 fn window_label(key: &WindowKey, spec: &WindowSpec) -> String {
     format!("{} at {}", spec.app_id, key)
+}
+
+fn scrolling_layout_target(spec: &WindowSpec, column: usize, row: usize) -> Option<(usize, usize)> {
+    (!spec.floating).then_some((column, row))
 }
 
 impl SizeSpec {
@@ -860,5 +906,28 @@ mod tests {
             SizeSpec::Proportion(0.33333).to_size_change(),
             SizeChange::SetProportion(33.333)
         );
+    }
+
+    #[test]
+    fn floating_windows_have_no_scrolling_layout_target() {
+        let mut floating = window(1, "btop", 1, 1, 1);
+        floating.is_floating = true;
+        floating.layout.pos_in_scrolling_layout = None;
+
+        let spec = WindowSpec {
+            app_id: "btop".into(),
+            command: vec!["btop".into()],
+            height: SizeSpec::Fixed(822),
+            floating: true,
+        };
+
+        assert!(floating.layout.pos_in_scrolling_layout.is_none());
+        assert_eq!(scrolling_layout_target(&spec, 1, 1), None);
+
+        let tiled_spec = WindowSpec {
+            floating: false,
+            ..spec
+        };
+        assert_eq!(scrolling_layout_target(&tiled_spec, 1, 1), Some((1, 1)));
     }
 }
