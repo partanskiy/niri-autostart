@@ -33,7 +33,9 @@ It is intended to replace ad-hoc startup shell scripts with a small event-driven
 paru -S niri-autostart
 ```
 
-Or prebuilt binary
+This builds a fully static musl binary locally.
+
+Or install the prebuilt static musl binary:
 
 ```sh
 paru -S niri-autostart-bin
@@ -41,7 +43,8 @@ paru -S niri-autostart-bin
 
 ### Binary releases
 
-You can download a binary release [here](https://github.com/partanskiy/niri-autostart/releases)
+You can download fully static musl binaries for x86-64 and AArch64
+[here](https://github.com/partanskiy/niri-autostart/releases).
 
 ## Configuration
 

@@ -6,19 +6,42 @@ arch=('x86_64' 'aarch64')
 url='@REPO_URL@'
 license=('GPL-3.0-or-later')
 optdepends=('niri: run niri-autostart inside the niri compositor')
-makedepends=('cargo')
+makedepends=('cargo' 'rust-musl')
 source=("$pkgname-$pkgver.tar.gz::@SOURCE_URL@")
 sha256sums=('@SOURCE_SHA256@')
 
+_cargo_target() {
+  case "$CARCH" in
+    x86_64) echo 'x86_64-unknown-linux-musl' ;;
+    aarch64) echo 'aarch64-unknown-linux-musl' ;;
+    *) return 1 ;;
+  esac
+}
+
+prepare() {
+  cd "$srcdir/$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(_cargo_target)"
+}
+
 build() {
   cd "$srcdir/$pkgname-$pkgver"
-  cargo build --locked --release
+  export RUSTUP_TOOLCHAIN=stable
+  cargo build --frozen --release --target "$(_cargo_target)"
+}
+
+check() {
+  cd "$srcdir/$pkgname-$pkgver"
+  bash scripts/verify-static-binary.sh \
+    "target/$(_cargo_target)/release/niri-autostart"
 }
 
 package() {
   cd "$srcdir/$pkgname-$pkgver"
 
-  install -Dm755 target/release/niri-autostart "$pkgdir/usr/bin/niri-autostart"
+  install -Dm755 \
+    "target/$(_cargo_target)/release/niri-autostart" \
+    "$pkgdir/usr/bin/niri-autostart"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

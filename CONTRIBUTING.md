@@ -48,6 +48,10 @@ rules apply when using another Git client.
    cargo clippy --all-targets -- -D warnings
    ```
 
+   CI additionally builds native x86-64 and AArch64 musl targets and rejects
+   release binaries containing a dynamic interpreter or shared-library
+   dependencies.
+
 4. Push the branch and open one PR into `dev`:
 
    ```sh
