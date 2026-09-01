@@ -18,30 +18,22 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
             archive: niri-autostart-x86_64-linux.tar.gz
-            apt_packages: ""
-            linker: ""
-          - target: aarch64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
             archive: niri-autostart-aarch64-linux.tar.gz
-            apt_packages: gcc-aarch64-linux-gnu
-            linker: aarch64-linux-gnu-gcc
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install target toolchain packages
-        if: matrix.apt_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.apt_packages }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -51,7 +43,11 @@ jobs:
         run: cargo build --locked --release --target "${TARGET}"
         env:
           TARGET: ${{ matrix.target }}
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+
+      - name: Verify static linkage
+        run: bash scripts/verify-static-binary.sh "target/${TARGET}/release/niri-autostart"
+        env:
+          TARGET: ${{ matrix.target }}
 
       - name: Package archive
         run: |

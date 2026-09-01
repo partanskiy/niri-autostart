@@ -38,3 +38,32 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+
+  static-musl:
+    name: Static musl (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build static binary
+        run: cargo build --locked --release --target "${TARGET}"
+        env:
+          TARGET: ${{ matrix.target }}
+
+      - name: Verify static linkage
+        run: bash scripts/verify-static-binary.sh "target/${TARGET}/release/niri-autostart"
+        env:
+          TARGET: ${{ matrix.target }}
