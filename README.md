@@ -39,6 +39,16 @@ Or prebuilt binary
 paru -S niri-autostart-bin
 ```
 
+### Fedora
+
+```sh
+# First install the Terra Repository, a third-party package repository for Fedora and its derivatives
+sudo dnf install --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$releasever' terra-release
+
+# Then install niri-autostart
+sudo dnf in niri-autostart
+```
+
 ### Binary releases
 
 You can download a binary release [here](https://github.com/partanskiy/niri-autostart/releases)
